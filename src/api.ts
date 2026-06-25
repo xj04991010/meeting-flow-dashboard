@@ -10,6 +10,29 @@
 import type { WeeklyDashboardResponse } from './types';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:3000';
+const DEFAULT_DEV_USER_ID = '6578915a-d33e-4eed-8d22-a3e334480f56';
+
+function getUrlParam(...names: string[]): string | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  for (const name of names) {
+    const value = params.get(name);
+    if (value) return value;
+  }
+  return null;
+}
+
+function primeDashboardCredentialsFromUrl() {
+  if (typeof window === 'undefined') return;
+
+  const uid = getUrlParam('uid', 'user_id');
+  const token = getUrlParam('token', 'dashboard_token', 'access_token');
+
+  if (uid) window.localStorage.setItem('MF_USER_ID', uid);
+  if (token) window.localStorage.setItem('MF_DASHBOARD_TOKEN', token);
+}
+
+primeDashboardCredentialsFromUrl();
 
 function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
@@ -20,8 +43,15 @@ function getAuthHeaders(): Record<string, string> {
     headers['Authorization'] = `tma ${(window as any).Telegram.WebApp.initData}`;
   } else {
     // Development fallback
-    const devToken = localStorage.getItem('dev_auth_token') || localStorage.getItem('MF_USER_ID') || '6578915a-d33e-4eed-8d22-a3e334480f56';
-    headers['Authorization'] = `tma ${devToken}`;
+    const userId = localStorage.getItem('dev_auth_token') || localStorage.getItem('MF_USER_ID') || DEFAULT_DEV_USER_ID;
+    const dashboardToken = localStorage.getItem('MF_DASHBOARD_TOKEN');
+
+    if (dashboardToken) {
+      headers['Authorization'] = `dashboard ${dashboardToken}`;
+      headers['X-Dashboard-User-Id'] = userId;
+    } else {
+      headers['Authorization'] = `tma ${userId}`;
+    }
   }
   return headers;
 }
