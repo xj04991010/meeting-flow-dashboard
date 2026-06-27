@@ -1,30 +1,30 @@
 :root {
-  --bg: #0b0f14;
-  --bg-elevated: #10161f;
-  --surface: #151a22;
-  --surface-raised: #1d2430;
-  --surface-hover: #252e3c;
-  --line: #2b3544;
-  --line-strong: #3d4a5c;
-  --text-main: #f3f0e7;
-  --text-muted: #98a3b3;
-  --text-soft: #c7ced8;
-  --accent: #3dd6b8;
-  --accent-strong: #a7f4e5;
-  --accent-soft: rgba(61, 214, 184, 0.13);
-  --accent-line: rgba(61, 214, 184, 0.38);
-  --success: #63d28f;
-  --success-soft: rgba(99, 210, 143, 0.13);
-  --warning: #d7aa57;
-  --warning-soft: rgba(215, 170, 87, 0.15);
-  --danger: #f07b75;
-  --danger-soft: rgba(240, 123, 117, 0.14);
-  --info: #86a8ff;
-  --info-soft: rgba(134, 168, 255, 0.13);
-  --violet: #b995ff;
-  --violet-soft: rgba(185, 149, 255, 0.12);
-  --shadow: 0 18px 60px rgba(0, 0, 0, 0.32);
-  --shadow-soft: 0 10px 34px rgba(0, 0, 0, 0.18);
+  --bg: #ece5d8;
+  --bg-elevated: #f3eee4;
+  --surface: #fbf8f1;
+  --surface-raised: #f1eadf;
+  --surface-hover: #e9dfd0;
+  --line: #d8cbb8;
+  --line-strong: #b9aa95;
+  --text-main: #3f3a34;
+  --text-muted: #81776a;
+  --text-soft: #5f584f;
+  --accent: #9aa184;
+  --accent-strong: #5f6f52;
+  --accent-soft: rgba(154, 161, 132, 0.2);
+  --accent-line: rgba(95, 111, 82, 0.36);
+  --success: #718767;
+  --success-soft: rgba(113, 135, 103, 0.16);
+  --warning: #b8795f;
+  --warning-soft: rgba(184, 121, 95, 0.16);
+  --danger: #a8665f;
+  --danger-soft: rgba(168, 102, 95, 0.14);
+  --info: #8797a5;
+  --info-soft: rgba(135, 151, 165, 0.16);
+  --violet: #a68686;
+  --violet-soft: rgba(166, 134, 134, 0.14);
+  --shadow: 0 18px 44px rgba(82, 66, 45, 0.18);
+  --shadow-soft: 0 10px 28px rgba(82, 66, 45, 0.1);
 
   --border: var(--line);
   --card-bg: var(--surface-raised);
@@ -45,13 +45,16 @@ body {
   min-height: 100vh;
   padding: 16px 0 24px;
   background:
-    radial-gradient(circle at 20% 0%, rgba(134, 168, 255, 0.08), transparent 280px),
-    radial-gradient(circle at 85% 12%, rgba(61, 214, 184, 0.07), transparent 260px),
-    linear-gradient(180deg, rgba(215, 170, 87, 0.03), transparent 260px),
+    radial-gradient(circle at 18% 0%, rgba(154, 161, 132, 0.22), transparent 300px),
+    radial-gradient(circle at 86% 10%, rgba(184, 121, 95, 0.12), transparent 280px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.32), transparent 280px),
     var(--bg);
   color: var(--text-main);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: Inter, "Noto Sans TC", "Microsoft JhengHei", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
+  font-size: 15px;
+  font-weight: 450;
+  text-rendering: geometricPrecision;
 }
 
 button,

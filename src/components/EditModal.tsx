@@ -78,7 +78,7 @@ export function EditModal({ editing, onSave, onClose, saving }: EditModalProps) 
               <label>
                 <span>狀態</span>
                 <select value={status} onChange={(event) => setStatus(event.target.value)}>
-                  <option value="needs_review">待審核</option>
+                  <option value="needs_review">需補充</option>
                   <option value="pending">待處理</option>
                   <option value="completed">已完成</option>
                   <option value="cancelled">已取消</option>
@@ -104,7 +104,7 @@ export function EditModal({ editing, onSave, onClose, saving }: EditModalProps) 
               <label>
                 <span>同步狀態</span>
                 <select value={syncStatus} onChange={(event) => setSyncStatus(event.target.value)}>
-                  <option value="pending_review">待審核</option>
+                  <option value="pending_review">需補充</option>
                   <option value="ready">待同步</option>
                   <option value="synced">已同步</option>
                   <option value="failed">失敗</option>
@@ -115,7 +115,7 @@ export function EditModal({ editing, onSave, onClose, saving }: EditModalProps) 
 
           <label className="checkbox-row">
             <input type="checkbox" checked={needsReview} onChange={(event) => setNeedsReview(event.target.checked)} />
-            <span>需要人工審核</span>
+            <span>需要你補充</span>
           </label>
         </div>
 

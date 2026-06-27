@@ -14,6 +14,7 @@ export type TaskRow = {
   category?: string | null;
   status?: string | null;
   deadline?: string | null;
+  follow_up_date?: string | null;
   confidence?: number | null;
   needs_review?: boolean | null;
   source_quote?: string | null;
@@ -57,6 +58,46 @@ export type DocumentRow = {
   content: string;
   status: 'processing' | 'completed' | 'failed';
   created_at: string;
+};
+
+export type DateLinkData = {
+  id: string;
+  label: string;
+  date: string;
+  source?: string;
+  field?: 'progress' | 'nextPush' | 'companyHelp';
+};
+
+export type ClientRow = {
+  id: string;
+  user_id?: string;
+  name: string;
+  contact_info?: Record<string, unknown> | null;
+  contract_start?: string | null;
+  contract_end?: string | null;
+  default_monthly_target?: number;
+  status?: 'active' | 'paused' | 'completed';
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ClientWeeklyNoteRow = {
+  id: string;
+  user_id?: string;
+  client_name: string;
+  week_key: string;
+  traffic_light: 'green' | 'yellow' | 'red';
+  raw_count: number;
+  edited_count: number;
+  scheduled_count: number;
+  unshot_count: number;
+  progress_note: string;
+  next_week_note: string;
+  urgent_note: string;
+  date_links: DateLinkData[];
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type WeekBucket = {
@@ -120,12 +161,12 @@ export type EditModalProps = {
 
 export const STATUS_LABELS: Record<string, string> = {
   pending: '待處理',
-  needs_review: '待審核',
+  needs_review: '需補充',
   ready: '待同步',
   completed: '已完成',
   cancelled: '已取消',
   synced: '已同步',
   failed: '失敗',
   ignored: '已忽略',
-  pending_review: '待審核',
+  pending_review: '需補充',
 };

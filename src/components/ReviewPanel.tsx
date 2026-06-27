@@ -20,10 +20,13 @@ export const ReviewPanel = memo(function ReviewPanel({
       <div className="panel-title warning-title">
         <div className="panel-title-main">
           <AlertTriangle size={18} />
-          <h2>待審核</h2>
+          <h2>需要補充</h2>
         </div>
         <span className="badge">{total}</span>
       </div>
+      {total > 0 && (
+        <p className="review-panel-hint">AI 已自動處理高信心項目，這裡只留下低信心、缺時間或語意不明的項目。</p>
+      )}
 
       <div className="review-list">
         {tasks.map((task) => (
@@ -34,10 +37,10 @@ export const ReviewPanel = memo(function ReviewPanel({
                 {task.priority === 'high' && <span className="priority-dot">高</span>}
                 {task.title}
               </strong>
-              <p>{task.client || task.category || '未分類'} · 信心 {confidencePercent(task.confidence)}</p>
+              <p>{task.client || task.category || '未分類'} · AI 信心 {confidencePercent(task.confidence)} · 補完後自動進待辦</p>
             </div>
             <div className="review-quick-actions" onClick={(event) => event.stopPropagation()}>
-              <button className="icon-btn success-btn" onClick={() => onConfirmTask(task.id)} title="確認任務">
+              <button className="icon-btn success-btn" onClick={() => onConfirmTask(task.id)} title="補充完成，加入待辦">
                 <CheckCircle2 size={16} />
               </button>
               <button className="icon-btn neutral-btn" onClick={() => onEditTask(task)} title="編輯">
@@ -57,10 +60,10 @@ export const ReviewPanel = memo(function ReviewPanel({
             <div className="review-card-body">
               <span className="card-type-badge event-badge">行程</span>
               <strong>{event.title}</strong>
-              <p>{formatDateOnly(event.start_time)} {formatTimeOnly(event.start_time)} · 信心 {confidencePercent(event.confidence)}</p>
+              <p>{formatDateOnly(event.start_time)} {formatTimeOnly(event.start_time)} · AI 信心 {confidencePercent(event.confidence)} · 補完後可同步</p>
             </div>
             <div className="review-quick-actions" onClick={(clickEvent) => clickEvent.stopPropagation()}>
-              <button className="icon-btn success-btn" onClick={() => onConfirmEvent(event.id)} title="確認行程">
+              <button className="icon-btn success-btn" onClick={() => onConfirmEvent(event.id)} title="補充完成，加入行程">
                 <CheckCircle2 size={16} />
               </button>
               <button className="icon-btn neutral-btn" onClick={() => onEditEvent(event)} title="編輯">
@@ -75,7 +78,7 @@ export const ReviewPanel = memo(function ReviewPanel({
           </article>
         ))}
 
-        {total === 0 && <div className="empty-state">目前沒有待審核項目。</div>}
+        {total === 0 && <div className="empty-state">沒有需要補充的項目。高信心結果已自動整理。</div>}
       </div>
     </section>
   );

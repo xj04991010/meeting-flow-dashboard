@@ -7,7 +7,26 @@
  * ✅ 所有元件必須透過此檔案的函式存取後端
  */
 
-import type { WeeklyDashboardResponse } from './types';
+import type { WeeklyDashboardResponse, ClientWeeklyNoteRow, ClientRow } from './types';
+
+export type ExtractMeetingResponse = {
+  ok: boolean;
+  result?: unknown;
+  summary?: {
+    taskCount?: number;
+    eventCount?: number;
+    reviewCount?: number;
+    autoReadyEventCount?: number;
+    memoryCount?: number;
+  };
+};
+
+export type ManualEntryInput = {
+  text: string;
+  client?: string;
+  category?: string;
+  linked_date?: string | null;
+};
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:3000';
 const DEFAULT_DEV_USER_ID = '6578915a-d33e-4eed-8d22-a3e334480f56';
@@ -123,7 +142,7 @@ export async function updateCalendarIntentStatus(id: string, status: string, syn
   if (!res.ok) throw new Error('Failed to update event status');
 }
 
-export async function extractMeetingNotes(rawText: string) {
+export async function extractMeetingNotes(rawText: string): Promise<ExtractMeetingResponse> {
   const res = await fetch(`${BACKEND_URL}/api/extract`, {
     method: 'POST',
     headers: getAuthHeaders(),
@@ -132,6 +151,19 @@ export async function extractMeetingNotes(rawText: string) {
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
     throw new Error(errorData.error || 'Failed to extract meeting notes');
+  }
+  return res.json();
+}
+
+export async function createManualEntry(input: ManualEntryInput) {
+  const res = await fetch(`${BACKEND_URL}/api/manual-entry`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(input)
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Failed to create manual entry');
   }
   return res.json();
 }
@@ -157,6 +189,85 @@ export async function saveUserSettings(settings: any) {
 /** 確認行程（將 status 設為 ready，needs_review 設為 false） */
 export async function confirmCalendarIntent(intentId: string): Promise<void> {
   await updateCalendarIntent(intentId, { status: 'ready', needs_review: false });
+}
+
+// ─── 業主筆記（Client Weekly Notes） ──────────
+
+/** 取得某週所有業主筆記 */
+export async function fetchClientNotes(weekKey: string): Promise<ClientWeeklyNoteRow[]> {
+  const url = new URL(`${BACKEND_URL}/api/client-notes`);
+  url.searchParams.append('week_key', weekKey);
+  const res = await fetch(url.toString(), { headers: getAuthHeaders() });
+  if (!res.ok) {
+    // 後端尚未實作時，靜默回空陣列（向下相容）
+    if (res.status === 404) return [];
+    throw new Error(`Failed to fetch client notes: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.notes || data || [];
+}
+
+/** 儲存單一業主的週筆記（upsert） */
+export async function saveClientNote(note: Omit<ClientWeeklyNoteRow, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/api/client-notes`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(note),
+  });
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`Failed to save client note: ${res.status}`);
+  }
+}
+
+/** 批次儲存所有業主的週筆記 */
+export async function batchSaveClientNotes(
+  weekKey: string,
+  notes: Array<Omit<ClientWeeklyNoteRow, 'id' | 'user_id' | 'created_at' | 'updated_at'>>,
+): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/api/client-notes/batch`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ week_key: weekKey, notes }),
+  });
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`Failed to batch save client notes: ${res.status}`);
+  }
+}
+
+// ─── 業主管理（Clients） ────────────────────────
+
+/** 取得所有業主 */
+export async function fetchClients(): Promise<ClientRow[]> {
+  const res = await fetch(`${BACKEND_URL}/api/clients`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) {
+    if (res.status === 404) return [];
+    throw new Error(`Failed to fetch clients: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.clients || data || [];
+}
+
+/** 新增業主 */
+export async function createClient(client: Omit<ClientRow, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<ClientRow> {
+  const res = await fetch(`${BACKEND_URL}/api/clients`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(client),
+  });
+  if (!res.ok) throw new Error(`Failed to create client: ${res.status}`);
+  return res.json();
+}
+
+/** 更新業主 */
+export async function updateClient(clientId: string, data: Partial<ClientRow>): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/api/clients/${clientId}`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Failed to update client: ${res.status}`);
 }
 
 // ─── Google Calendar 同步 ────────────────────

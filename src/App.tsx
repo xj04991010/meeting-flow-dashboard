@@ -7,20 +7,16 @@ import {
   confirmCalendarIntent,
   fetchWeeklyDashboard,
   getGoogleAuthUrl,
-  syncEventToGoogle,
   updateCalendarIntent,
   updateTask,
   updateTaskStatus,
 } from './api';
 
 import { BatchList } from './components/BatchList';
-import { DayColumn } from './components/DayColumn';
 import { EditModal } from './components/EditModal';
-import { QuickInput } from './components/QuickInput';
 import { ReviewPanel } from './components/ReviewPanel';
-import { RoleBoard } from './components/RoleBoard';
 import { SettingsModal, TAIWAN_CITIES } from './components/SettingsModal';
-import { WeeklyTasks } from './components/WeeklyTasks';
+import { WeeklyClientBoard } from './components/WeeklyClientBoard';
 
 const WEATHER_LABELS: Record<number, string> = {
   0: '晴',
@@ -55,8 +51,7 @@ const WEATHER_LABELS: Record<number, string> = {
 
 function App() {
   const [user, setUser] = useState<UserRow | null>(null);
-  const [weekView, setWeekView] = useState<WeekBucket[]>([]);
-  const [unscheduledTasks, setUnscheduledTasks] = useState<TaskRow[]>([]);
+  const [, setWeekView] = useState<WeekBucket[]>([]);
   const [batches, setBatches] = useState<SourceBatchRow[]>([]);
   const [allTasks, setAllTasks] = useState<TaskRow[]>([]);
   const [allEvents, setAllEvents] = useState<CalendarIntentRow[]>([]);
@@ -64,7 +59,7 @@ function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState<{ type: 'task'; item: TaskRow } | { type: 'event'; item: CalendarIntentRow } | null>(null);
   const [saving, setSaving] = useState(false);
-  const [weatherMap, setWeatherMap] = useState<Record<string, { label: string; max: number; min: number }>>({});
+  const [, setWeatherMap] = useState<Record<string, { label: string; max: number; min: number }>>({});
   const [showSettings, setShowSettings] = useState(false);
   const [preferredCity, setPreferredCity] = useState(localStorage.getItem('preferredCity') || '自動定位');
   const [selectedDate, setSelectedDate] = useState('');
@@ -86,7 +81,6 @@ function App() {
       const payload = await fetchWeeklyDashboard(selectedDate);
       setUser(payload.user || null);
       setWeekView(payload.week_view || []);
-      setUnscheduledTasks(payload.unscheduled_tasks || []);
       setBatches(payload.batches || []);
       setAllTasks(payload.tasks || []);
       setAllEvents(payload.calendarIntents || []);
@@ -184,30 +178,6 @@ function App() {
     void fetchWeather(city);
   };
 
-  const handleUpdateTaskStatus = async (taskId: string, status: string) => {
-    await updateTaskStatus(taskId, status);
-    await fetchData();
-  };
-
-  const handleToggleTaskComplete = (id: string, current: string) => {
-    void handleUpdateTaskStatus(id, current === 'completed' ? 'pending' : 'completed');
-  };
-
-  const handleSyncEvent = async (eventId: string) => {
-    try {
-      const res = await syncEventToGoogle(eventId);
-      if (!res.success && res.code === 'NOT_AUTHORIZED') {
-        if (window.confirm('尚未連接 Google Calendar。現在前往授權？')) {
-          window.location.href = getGoogleAuthUrl(user?.id || '');
-        }
-      } else {
-        await fetchData();
-      }
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
   const handleConfirmTask = async (taskId: string) => {
     await updateTaskStatus(taskId, 'pending');
     await fetchData();
@@ -237,44 +207,6 @@ function App() {
       console.error('Save error:', error);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleDropTask = async (taskId: string, dateStr: string) => {
-    await updateTask(taskId, { deadline: dateStr, status: 'pending', needs_review: false });
-    await fetchData();
-  };
-
-  const handleDropEvent = async (eventId: string, targetDateStr: string, originalStartStr: string) => {
-    try {
-      const [year, month, day] = targetDateStr.split('-').map(Number);
-      const newStart = new Date(originalStartStr);
-      newStart.setFullYear(year, month - 1, day);
-
-      const updatePayload: Record<string, unknown> = {
-        start_time: newStart.toISOString(),
-        needs_review: false,
-      };
-
-      let oldEvent: CalendarIntentRow | null = null;
-      for (const bucket of weekView) {
-        const found = bucket.events.find((event) => event.id === eventId);
-        if (found) {
-          oldEvent = found;
-          break;
-        }
-      }
-
-      if (oldEvent?.end_time) {
-        const newEnd = new Date(oldEvent.end_time);
-        newEnd.setFullYear(year, month - 1, day);
-        updatePayload.end_time = newEnd.toISOString();
-      }
-
-      await updateCalendarIntent(eventId, updatePayload);
-      await fetchData();
-    } catch (error) {
-      console.error('Failed to move event date:', error);
     }
   };
 
@@ -324,7 +256,7 @@ function App() {
           </div>
           <div>
             <h1>MeetingFlow</h1>
-            <p>任務、行程與 AI 審核中心</p>
+            <p>客戶專案管理、日期連結與秘書追蹤</p>
           </div>
         </div>
 
@@ -344,12 +276,12 @@ function App() {
           {user?.is_calendar_authorized ? (
             <span className="connection-pill connected">
               <Calendar size={15} />
-              Calendar 已連接
+              Google Calendar 已連接
             </span>
           ) : (
             <button className="primary-action" onClick={() => { window.location.href = getGoogleAuthUrl(user?.id || ''); }}>
               <Calendar size={16} />
-              連接 Calendar
+              連接 Google Calendar
             </button>
           )}
           <button className="icon-button" onClick={() => setShowSettings(true)} title="設定">
@@ -361,72 +293,52 @@ function App() {
         </div>
       </header>
 
+      {dashboardError && (
+        <div className="system-notice dashboard-alert" role="status">
+          <AlertTriangle size={16} />
+          <span>資料同步失敗：{dashboardError}</span>
+          <button className="ghost compact" onClick={() => { void fetchData(); }}>
+            重新整理
+          </button>
+        </div>
+      )}
+
       <section className="calendar-priority" aria-label="週曆主工作區">
         <div className="calendar-section-header">
           <div>
-            <span className="modal-eyebrow">Weekly Calendar</span>
-            <h2>週曆</h2>
+            <span className="modal-eyebrow">Weekly Control Board</span>
+            <h2>本週業主控管</h2>
           </div>
           <div className="calendar-inline-stats">
-            <span>待審核 {reviewCount}</span>
-            <span>任務 {activeTaskCount}</span>
+            <span>需補充 {reviewCount}</span>
+            <span>客戶 {new Set(allTasks.map((task) => task.client || task.category).filter(Boolean)).size}</span>
+            <span>追蹤 {activeTaskCount}</span>
             <span>行程 {activeEventCount}</span>
           </div>
         </div>
 
-        {dashboardError && (
-          <div className="system-notice inline" role="status">
-            <AlertTriangle size={16} />
-            <span>資料同步失敗：{dashboardError}</span>
-          </div>
-        )}
-
-        <div className="week-grid-container">
-          {weekView.length > 0 ? (
-            <div className="week-grid">
-              {weekView.map((day) => (
-                <DayColumn
-                  key={`${day.date}-${day.label}`}
-                  bucket={day}
-                  onEditTask={(task) => setEditing({ type: 'task', item: task })}
-                  onEditEvent={(event) => setEditing({ type: 'event', item: event })}
-                  onToggleTaskComplete={handleToggleTaskComplete}
-                  onSyncEvent={handleSyncEvent}
-                  onDropTask={handleDropTask}
-                  onDropEvent={handleDropEvent}
-                  onDeleteTask={handleDeleteTask}
-                  onDeleteEvent={handleDeleteEvent}
-                  weather={weatherMap[day.date]}
-                />
-              ))}
-            </div>
-          ) : (
-            <section className="empty-board">
-              <LayoutDashboard size={24} />
-              <h2>尚無週排程資料</h2>
-              <p>確認後端 `/api/dashboard/weekly` 已啟動，或從 Telegram / 快速整理匯入第一批任務。</p>
-            </section>
-          )}
-        </div>
-
-        <WeeklyTasks
+        <WeeklyClientBoard
           tasks={allTasks}
+          events={allEvents}
           selectedDate={selectedDate}
           onEditTask={(task) => setEditing({ type: 'task', item: task })}
-          onToggleTaskComplete={handleToggleTaskComplete}
+          onEditEvent={(event) => setEditing({ type: 'event', item: event })}
         />
       </section>
 
       <main className="operations-layout">
         <section className="secondary-workspace">
-          {user && <QuickInput onSuccess={fetchData} />}
-          <RoleBoard
-            tasks={unscheduledTasks}
-            customCategories={user?.custom_categories}
-            onEditTask={(task) => setEditing({ type: 'task', item: task })}
-            onToggleTaskComplete={handleToggleTaskComplete}
-            onDeleteTask={handleDeleteTask}
-          />
+          <section className="panel secretary-panel">
+            <div className="panel-title">
+              <div className="panel-title-main">
+                <Calendar size={18} />
+                <h2>秘書追蹤提示</h2>
+              </div>
+            </div>
+            <div className="secretary-note">
+              前三天提醒、發片快到期、毛片/待剪/企劃狀態，之後會從每週便利貼和 Google Calendar 事件一起判斷。
+            </div>
+          </section>
         </section>
 
         <aside className="sidebar support-sidebar">
@@ -444,7 +356,7 @@ function App() {
             <div className="metric-card attention">
               <AlertTriangle size={18} />
               <div>
-                <span>待審核</span>
+                <span>需補充</span>
                 <strong>{reviewCount}</strong>
               </div>
             </div>
