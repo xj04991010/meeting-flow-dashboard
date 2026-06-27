@@ -3490,3 +3490,13 @@ button:not(.icon-button):not(.ghost):not(.tab-button):not(.check-btn):not(.icon-
     flex: 1;
   }
 }
+
+.client-task-lists { display: flex; gap: 1rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color); }
+.client-task-list { flex: 1; display: flex; flex-direction: column; gap: 0.5rem; }
+.client-task-list strong { font-size: 0.85rem; color: var(--text-muted); }
+.client-task-items { display: flex; flex-direction: column; gap: 0.25rem; }
+.client-task-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem; background: var(--bg-card-hover); border-radius: 4px; font-size: 0.9rem; cursor: pointer; }
+.client-task-item:hover { filter: brightness(1.1); }
+.task-deadline { margin-left: auto; color: var(--text-muted); font-size: 0.8rem; }
+.compact-task-input { font-size: 0.85rem; padding: 0.4rem; border: 1px dashed var(--border-color); background: transparent; border-radius: 4px; color: var(--text-color); }
+.compact-task-input:focus { border-color: var(--primary-color); outline: none; background: var(--bg-card); }

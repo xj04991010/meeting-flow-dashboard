@@ -1,20 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, Calendar, CheckSquare, LayoutDashboard, RefreshCcw, Settings } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Activity, AlertTriangle, Calendar, LayoutDashboard, RefreshCcw, Settings } from 'lucide-react';
 import './App.css';
 
-import type { CalendarIntentRow, SourceBatchRow, TaskRow, UserRow, WeekBucket } from './types';
+import type { CalendarIntentRow, TaskRow, UserRow } from './types';
 import {
-  confirmCalendarIntent,
   fetchWeeklyDashboard,
   getGoogleAuthUrl,
   updateCalendarIntent,
   updateTask,
-  updateTaskStatus,
+  createManualEntry,
+  fetchClients,
+  createClient
 } from './api';
 
-import { BatchList } from './components/BatchList';
 import { EditModal } from './components/EditModal';
-import { ReviewPanel } from './components/ReviewPanel';
 import { SettingsModal, TAIWAN_CITIES } from './components/SettingsModal';
 import { WeeklyClientBoard } from './components/WeeklyClientBoard';
 
@@ -51,8 +50,7 @@ const WEATHER_LABELS: Record<number, string> = {
 
 function App() {
   const [user, setUser] = useState<UserRow | null>(null);
-  const [, setWeekView] = useState<WeekBucket[]>([]);
-  const [batches, setBatches] = useState<SourceBatchRow[]>([]);
+  const [clients, setClients] = useState<any[]>([]);
   const [allTasks, setAllTasks] = useState<TaskRow[]>([]);
   const [allEvents, setAllEvents] = useState<CalendarIntentRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,10 +78,11 @@ function App() {
       setDashboardError(null);
       const payload = await fetchWeeklyDashboard(selectedDate);
       setUser(payload.user || null);
-      setWeekView(payload.week_view || []);
-      setBatches(payload.batches || []);
       setAllTasks(payload.tasks || []);
       setAllEvents(payload.calendarIntents || []);
+      
+      const clientsData = await fetchClients();
+      setClients(clientsData || []);
     } catch (error) {
       setDashboardError(error instanceof Error ? error.message : '資料同步失敗');
     } finally {
@@ -176,19 +175,7 @@ function App() {
     localStorage.setItem('preferredCity', city);
     setShowSettings(false);
     void fetchWeather(city);
-  };
-
-  const handleConfirmTask = async (taskId: string) => {
-    await updateTaskStatus(taskId, 'pending');
-    await fetchData();
-  };
-
-  const handleConfirmEvent = async (eventId: string) => {
-    await confirmCalendarIntent(eventId);
-    await fetchData();
-  };
-
-  const closeEditor = () => {
+  };  const closeEditor = () => {
     if (!saving) setEditing(null);
   };
 
@@ -210,33 +197,27 @@ function App() {
     }
   };
 
-  const handleDeleteTask = async (taskId: string) => {
-    if (!window.confirm('確定要移除此任務？')) return;
+  const handleCreateTask = async (clientName: string, taskType: string, title: string) => {
     try {
-      await updateTaskStatus(taskId, 'cancelled');
+      await createManualEntry({
+        text: title,
+        client: clientName,
+        category: taskType,
+      });
       await fetchData();
-    } catch (error) {
-      console.error('Failed to delete task:', error);
+    } catch (err) {
+      console.error('Create task error:', err);
     }
   };
 
-  const handleDeleteEvent = async (eventId: string) => {
-    if (!window.confirm('確定要移除此行程？')) return;
+  const handleCreateClient = async (name: string) => {
     try {
-      await updateCalendarIntent(eventId, { status: 'cancelled' });
+      await createClient({ name, status: 'active' });
       await fetchData();
-    } catch (error) {
-      console.error('Failed to delete event:', error);
+    } catch (err) {
+      console.error('Create client error:', err);
     }
   };
-
-  const reviewTasks = useMemo(() => allTasks.filter((task) => task.needs_review || task.status === 'needs_review'), [allTasks]);
-  const reviewEvents = useMemo(() => allEvents.filter((event) => event.needs_review || event.status === 'needs_review'), [allEvents]);
-  const activeTaskCount = useMemo(() => allTasks.filter((task) => task.status !== 'completed' && task.status !== 'cancelled').length, [allTasks]);
-  const completedTaskCount = useMemo(() => allTasks.filter((task) => task.status === 'completed').length, [allTasks]);
-  const activeEventCount = useMemo(() => allEvents.filter((event) => event.status !== 'cancelled').length, [allEvents]);
-  const syncedEventCount = useMemo(() => allEvents.filter((event) => event.sync_status === 'synced').length, [allEvents]);
-  const reviewCount = reviewTasks.length + reviewEvents.length;
 
   if (loading) {
     return (
@@ -310,19 +291,19 @@ function App() {
             <h2>本週業主控管</h2>
           </div>
           <div className="calendar-inline-stats">
-            <span>需補充 {reviewCount}</span>
             <span>客戶 {new Set(allTasks.map((task) => task.client || task.category).filter(Boolean)).size}</span>
-            <span>追蹤 {activeTaskCount}</span>
-            <span>行程 {activeEventCount}</span>
           </div>
         </div>
 
         <WeeklyClientBoard
           tasks={allTasks}
           events={allEvents}
+          clients={clients}
           selectedDate={selectedDate}
           onEditTask={(task) => setEditing({ type: 'task', item: task })}
           onEditEvent={(event) => setEditing({ type: 'event', item: event })}
+          onCreateTask={handleCreateTask}
+          onCreateClient={handleCreateClient}
         />
       </section>
 
@@ -342,47 +323,6 @@ function App() {
         </section>
 
         <aside className="sidebar support-sidebar">
-          <ReviewPanel
-            tasks={reviewTasks}
-            events={reviewEvents}
-            onConfirmTask={handleConfirmTask}
-            onConfirmEvent={handleConfirmEvent}
-            onEditTask={(task) => setEditing({ type: 'task', item: task })}
-            onEditEvent={(event) => setEditing({ type: 'event', item: event })}
-            onDeleteTask={handleDeleteTask}
-            onDeleteEvent={handleDeleteEvent}
-          />
-          <section className="summary-strip compact" aria-label="本週摘要">
-            <div className="metric-card attention">
-              <AlertTriangle size={18} />
-              <div>
-                <span>需補充</span>
-                <strong>{reviewCount}</strong>
-              </div>
-            </div>
-            <div className="metric-card">
-              <CheckSquare size={18} />
-              <div>
-                <span>未完成任務</span>
-                <strong>{activeTaskCount}</strong>
-              </div>
-            </div>
-            <div className="metric-card">
-              <Calendar size={18} />
-              <div>
-                <span>有效行程</span>
-                <strong>{activeEventCount}</strong>
-              </div>
-            </div>
-            <div className="metric-card success">
-              <Activity size={18} />
-              <div>
-                <span>完成 / 同步</span>
-                <strong>{completedTaskCount} / {syncedEventCount}</strong>
-              </div>
-            </div>
-          </section>
-          <BatchList batches={batches} />
         </aside>
       </main>
 

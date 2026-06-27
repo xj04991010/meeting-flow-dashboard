@@ -13,6 +13,7 @@ export type TaskRow = {
   owner?: string | null;
   category?: string | null;
   status?: string | null;
+  task_type?: string | null;
   deadline?: string | null;
   follow_up_date?: string | null;
   confidence?: number | null;
@@ -92,6 +93,7 @@ export type ClientWeeklyNoteRow = {
   edited_count: number;
   scheduled_count: number;
   unshot_count: number;
+  current_status: string;
   progress_note: string;
   next_week_note: string;
   urgent_note: string;

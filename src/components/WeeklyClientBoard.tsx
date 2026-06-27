@@ -1,15 +1,18 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Building2, CalendarClock, ChevronDown, Clipboard, Download, Film, Link2, MessageCircle, ScrollText, Send, Sparkles } from 'lucide-react';
-import type { CalendarIntentRow, ClientWeeklyNoteRow, TaskRow } from '../types';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Building2, CalendarClock, ChevronDown, Clipboard, Download, Film, LayoutDashboard, Link2, MessageCircle, ScrollText, Send, Sparkles } from 'lucide-react';
+import type { CalendarIntentRow, ClientRow, ClientWeeklyNoteRow, TaskRow } from '../types';
 import { formatDateOnly } from '../utils';
 import { fetchClientNotes, saveClientNote } from '../api';
 
 type WeeklyClientBoardProps = {
   tasks: TaskRow[];
   events: CalendarIntentRow[];
-  selectedDate: string;
+  clients: ClientRow[];
+  selectedDate?: string;
   onEditTask: (task: TaskRow) => void;
   onEditEvent: (event: CalendarIntentRow) => void;
+  onCreateTask: (clientName: string, taskType: string, title: string) => Promise<void>;
+  onCreateClient: (name: string) => Promise<void>;
 };
 
 type ClientNote = {
@@ -101,58 +104,7 @@ const DEFAULT_NOTE: ClientNote = {
   dateLinks: [],
 };
 
-const DEMO_CLIENTS: ClientWeek[] = [
-  {
-    name: '水果王',
-    tasks: [
-      {
-        id: 'demo-fruit-1',
-        title: '5/20 拍片，先確認場地與腳本',
-        client: '水果王',
-        category: '水果王',
-        deadline: new Date().toISOString(),
-        status: 'pending',
-        confidence: 1,
-        created_at: new Date().toISOString(),
-      },
-    ],
-    events: [],
-  },
-  {
-    name: '茶好玩',
-    tasks: [
-      {
-        id: 'demo-tea-1',
-        title: '下週要追發片日，確認毛片是否都到齊',
-        client: '茶好玩',
-        category: '茶好玩',
-        deadline: new Date(Date.now() + 3 * 86400000).toISOString(),
-        status: 'pending',
-        confidence: 1,
-        created_at: new Date().toISOString(),
-      },
-    ],
-    events: [],
-  },
-  {
-    name: 'NINI',
-    tasks: [],
-    events: [
-      {
-        id: 'demo-nini-1',
-        title: '企劃討論',
-        client: 'NINI',
-        start_time: new Date(Date.now() + 5 * 86400000).toISOString(),
-        status: 'ready',
-        confidence: 1,
-        needs_review: false,
-        created_at: new Date().toISOString(),
-      },
-    ],
-  },
-];
-
-function getWeekStartKey(selectedDate: string) {
+function getWeekStartKey(selectedDate?: string) {
   const base = selectedDate ? new Date(selectedDate) : new Date();
   const day = base.getDay();
   const diff = base.getDate() - day + (day === 0 ? -6 : 1);
@@ -162,7 +114,7 @@ function getWeekStartKey(selectedDate: string) {
   return monday.toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
 }
 
-function getRollingStartKey(selectedDate: string) {
+function getRollingStartKey(selectedDate?: string) {
   const base = selectedDate ? new Date(`${selectedDate}T00:00:00+08:00`) : new Date();
   return base.toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
 }
@@ -516,12 +468,15 @@ function mapNoteToPayload(clientName: string, weekKey: string, note: ClientNote)
   };
 }
 
-export const WeeklyClientBoard = memo(function WeeklyClientBoard({
+export function WeeklyClientBoard({
   tasks,
   events,
+  clients,
   selectedDate,
   onEditTask,
   onEditEvent,
+  onCreateTask,
+  onCreateClient,
 }: WeeklyClientBoardProps) {
   const weekKey = useMemo(() => getWeekStartKey(selectedDate), [selectedDate]);
   const rollingStartKey = useMemo(() => getRollingStartKey(selectedDate), [selectedDate]);
@@ -604,12 +559,18 @@ export const WeeklyClientBoard = memo(function WeeklyClientBoard({
     setFocusDate(isTodayInWeek ? today : weekDays[0]?.key || today);
   }, [selectedDate, weekDays]);
 
-  const clients = useMemo(() => {
+  const clientMap = useMemo(() => {
     const map = new Map<string, ClientWeek>();
+    
+    clients.forEach((client) => {
+      map.set(client.name, { name: client.name, tasks: [], events: [] });
+    });
+
     const ensure = (name: string) => {
       if (!map.has(name)) map.set(name, { name, tasks: [], events: [] });
       return map.get(name)!;
     };
+
     tasks
       .filter((task) => task.status !== 'cancelled')
       .forEach((task) => ensure(task.client || task.category || '未分類業主').tasks.push(task));
@@ -617,15 +578,23 @@ export const WeeklyClientBoard = memo(function WeeklyClientBoard({
       .filter((event) => event.status !== 'cancelled')
       .forEach((event) => ensure(event.client || '未分類業主').events.push(event));
 
-    const list = Array.from(map.values());
-    return list.length > 0 ? list : DEMO_CLIENTS;
-  }, [events, tasks]);
+    return Array.from(map.values());
+  }, [events, tasks, clients]);
+
+  const [newClientName, setNewClientName] = useState('');
+
+  const handleCreateClient = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && newClientName.trim()) {
+      await onCreateClient(newClientName.trim());
+      setNewClientName('');
+    }
+  };
 
   const calendarItems = useMemo(() => {
     const items: CalendarItem[] = [];
 
-    const sourceTasks = tasks.length > 0 ? tasks : DEMO_CLIENTS.flatMap((client) => client.tasks);
-    const sourceEvents = events.length > 0 ? events : DEMO_CLIENTS.flatMap((client) => client.events);
+    const sourceTasks = tasks;
+    const sourceEvents = events;
 
     sourceTasks.filter((task) => task.status !== 'cancelled').forEach((task) => {
       const date = toDateKey(task.deadline);
@@ -1104,7 +1073,12 @@ export const WeeklyClientBoard = memo(function WeeklyClientBoard({
 
       <div className="weekly-board-split">
         <div className="client-row-list">
-          {clients.map((client) => {
+          {clientMap.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl shadow-sm border border-gray-100 text-gray-500 gap-4">
+              <LayoutDashboard className="w-12 h-12 text-gray-300" />
+              <p>尚未建立客戶，請透過下方輸入框新增。</p>
+            </div>
+          ) : clientMap.map((client) => {
             const note = notes[client.name] || DEFAULT_NOTE;
             const trafficLight = note.trafficLight || 'green';
             const traffic = TRAFFIC_LIGHTS[trafficLight];
@@ -1171,9 +1145,51 @@ export const WeeklyClientBoard = memo(function WeeklyClientBoard({
                   />
                 </div>
 
+                <div className="client-task-lists">
+                  {(['待拍攝', '待確認事項'] as const).map(type => (
+                    <div key={type} className="client-task-list">
+                      <strong>{type}</strong>
+                      <div className="client-task-items">
+                        {client.tasks.filter(t => t.task_type === type || (type === '待確認事項' && t.category === '待確認事項') || (type === '待拍攝' && t.category === '待拍攝')).map(t => (
+                          <div key={t.id} className="client-task-item" onClick={() => onEditTask(t)}>
+                            <span className="status-dot" data-status={t.status} />
+                            <span>{t.title}</span>
+                            {t.deadline && <small className="task-deadline">{formatDateOnly(t.deadline)}</small>}
+                          </div>
+                        ))}
+                      </div>
+                      {onCreateTask && (
+                        <input 
+                          type="text" 
+                          placeholder={`+ 新增${type}... (按 Enter 儲存)`}
+                          className="compact-task-input"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                              onCreateTask(client.name, type, e.currentTarget.value.trim());
+                              e.currentTarget.value = '';
+                            }
+                          }}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+
               </article>
             );
           })}
+        </div>
+
+        {/* 新增客戶輸入框 */}
+        <div className="mt-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+          <input
+            type="text"
+            className="w-full bg-gray-50 border-none outline-none text-gray-700 placeholder-gray-400 py-2 px-3 rounded text-sm focus:ring-1 focus:ring-emerald-500"
+            placeholder="+ 輸入新客戶名稱並按下 Enter 建立"
+            value={newClientName}
+            onChange={(e) => setNewClientName(e.target.value)}
+            onKeyDown={handleCreateClient}
+          />
         </div>
 
         <aside className="week-focus-panel">
@@ -1299,4 +1315,4 @@ export const WeeklyClientBoard = memo(function WeeklyClientBoard({
       </div>
     </section>
   );
-});
+}

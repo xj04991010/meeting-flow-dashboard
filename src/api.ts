@@ -9,17 +9,7 @@
 
 import type { WeeklyDashboardResponse, ClientWeeklyNoteRow, ClientRow } from './types';
 
-export type ExtractMeetingResponse = {
-  ok: boolean;
-  result?: unknown;
-  summary?: {
-    taskCount?: number;
-    eventCount?: number;
-    reviewCount?: number;
-    autoReadyEventCount?: number;
-    memoryCount?: number;
-  };
-};
+
 
 export type ManualEntryInput = {
   text: string;
@@ -142,18 +132,7 @@ export async function updateCalendarIntentStatus(id: string, status: string, syn
   if (!res.ok) throw new Error('Failed to update event status');
 }
 
-export async function extractMeetingNotes(rawText: string): Promise<ExtractMeetingResponse> {
-  const res = await fetch(`${BACKEND_URL}/api/extract`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify({ raw_text: rawText })
-  });
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error || 'Failed to extract meeting notes');
-  }
-  return res.json();
-}
+
 
 export async function createManualEntry(input: ManualEntryInput) {
   const res = await fetch(`${BACKEND_URL}/api/manual-entry`, {
