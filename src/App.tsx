@@ -237,7 +237,7 @@ function App() {
           </div>
           <div>
             <h1>MeetingFlow</h1>
-            <p>客戶專案管理、日期連結與秘書追蹤</p>
+            <p>客戶週控與秘書追蹤</p>
           </div>
         </div>
 
@@ -247,13 +247,17 @@ function App() {
               回到本週
             </button>
           )}
-          <input
-            type="date"
-            className="date-selector-input"
-            value={selectedDate}
-            onChange={(event) => setSelectedDate(event.target.value)}
-            title="選擇週視圖日期"
-          />
+          <label className="date-control">
+            <Calendar size={16} />
+            <span>查看日期</span>
+            <input
+              type="date"
+              className="date-selector-input"
+              value={selectedDate}
+              onChange={(event) => setSelectedDate(event.target.value)}
+              aria-label="選擇週視圖日期"
+            />
+          </label>
           {user?.is_calendar_authorized ? (
             <span className="connection-pill connected">
               <Calendar size={15} />
@@ -285,16 +289,6 @@ function App() {
       )}
 
       <section className="calendar-priority" aria-label="週曆主工作區">
-        <div className="calendar-section-header">
-          <div>
-            <span className="modal-eyebrow">Weekly Control Board</span>
-            <h2>本週業主控管</h2>
-          </div>
-          <div className="calendar-inline-stats">
-            <span>客戶 {new Set(allTasks.map((task) => task.client || task.category).filter(Boolean)).size}</span>
-          </div>
-        </div>
-
         <WeeklyClientBoard
           tasks={allTasks}
           events={allEvents}
@@ -306,25 +300,6 @@ function App() {
           onCreateClient={handleCreateClient}
         />
       </section>
-
-      <main className="operations-layout">
-        <section className="secondary-workspace">
-          <section className="panel secretary-panel">
-            <div className="panel-title">
-              <div className="panel-title-main">
-                <Calendar size={18} />
-                <h2>秘書追蹤提示</h2>
-              </div>
-            </div>
-            <div className="secretary-note">
-              前三天提醒、發片快到期、毛片/待剪/企劃狀態，之後會從每週便利貼和 Google Calendar 事件一起判斷。
-            </div>
-          </section>
-        </section>
-
-        <aside className="sidebar support-sidebar">
-        </aside>
-      </main>
 
       {editing && (
         <EditModal

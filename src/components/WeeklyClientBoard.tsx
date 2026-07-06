@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Building2, CalendarClock, ChevronDown, Clipboard, Download, Film, LayoutDashboard, Link2, MessageCircle, ScrollText, Send, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { RichNoteEditor } from './RichNoteEditor';
+import { AlertTriangle, Building2, CalendarClock, ChevronDown, Clipboard, Download, Film, LayoutDashboard, Link2, MessageCircle, Plus, ScrollText, Send, Sparkles } from 'lucide-react';
 import type { CalendarIntentRow, ClientRow, ClientWeeklyNoteRow, TaskRow } from '../types';
 import { formatDateOnly } from '../utils';
 import { fetchClientNotes, saveClientNote } from '../api';
@@ -164,7 +165,7 @@ function formatReportDate(dateKey: string) {
 }
 
 function cleanReportText(value?: string) {
-  return (value || '').replace(/\s+/g, ' ').trim();
+  return normalizeLegacyNoteText(value || '').replace(/\s+/g, ' ').trim();
 }
 
 function loadBossReportExports(): BossReportExportRecord[] {
@@ -186,6 +187,33 @@ function escapeHtml(value: string) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function normalizeLegacyNoteText(value: string) {
+  let current = value || '';
+  if (!current || !/[<&]/.test(current)) return current;
+
+  for (let index = 0; index < 512; index += 1) {
+    const next = current
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#0?39;/g, "'")
+      .replace(/&nbsp;/g, ' ');
+    if (next === current) break;
+    current = next;
+  }
+
+  if (typeof DOMParser !== 'undefined' && /<[^>]+>/.test(current)) {
+    const markup = current
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li)>/gi, '\n');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    current = parsed.body.textContent || '';
+  }
+
+  return current.replace(/\u00a0/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function renderLinkedNoteHtml(
@@ -219,20 +247,11 @@ function renderLinkedNoteHtml(
     html += char === '\n' ? '<br>' : escapeHtml(char);
     index += 1;
   }
-  return html;
-}
-
-function getEditorPlainText(target: HTMLElement) {
-  const clone = target.cloneNode(true) as HTMLElement;
-  clone.querySelectorAll<HTMLElement>('.inline-date-link').forEach((link) => {
-    link.replaceWith(document.createTextNode(link.dataset.label || link.textContent || ''));
-  });
-  return clone.innerText;
+  return `<p>${html}</p>`;
 }
 
 type InlineDateNoteProps = {
   clientName: string;
-  label: string;
   value: string;
   links: ClientNote['dateLinks'];
   field: TextFieldKey;
@@ -252,7 +271,6 @@ type InlineDateNoteProps = {
 
 function InlineDateNote({
   clientName,
-  label,
   value,
   links,
   field,
@@ -280,77 +298,22 @@ function InlineDateNote({
     date.setDate(date.getDate() + offsetDays);
     return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
   };
-  const deleteAdjacentChip = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== 'Backspace' && event.key !== 'Delete') return;
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return;
-    const range = selection.getRangeAt(0);
-    const editor = event.currentTarget;
-    const findChip = (node: Node | null) => (
-      node instanceof HTMLElement && node.classList.contains('inline-date-link') ? node : null
-    );
-    let candidate: Node | null = null;
-    if (range.startContainer === editor) {
-      candidate = editor.childNodes[range.startOffset + (event.key === 'Delete' ? 0 : -1)] || null;
-    } else if (range.startContainer.nodeType === Node.TEXT_NODE) {
-      if (event.key === 'Backspace' && range.startOffset === 0) candidate = range.startContainer.previousSibling;
-      if (event.key === 'Delete' && range.startOffset === range.startContainer.textContent?.length) candidate = range.startContainer.nextSibling;
-    }
-    const chip = findChip(candidate);
-    if (!chip) return;
-    event.preventDefault();
-    chip.remove();
-    const text = getEditorPlainText(editor);
-    editor.classList.toggle('is-empty', !text.trim());
-    onChange(text);
-  };
-
   return (
     <label className="row-note-field rich-note-field">
-      <span>{label}</span>
-      <small className="rich-note-hint">{placeholder}</small>
-      <div
+      <RichNoteEditor
+        content={renderLinkedNoteHtml(value, links, field)}
+        placeholder={placeholder}
         className={`rich-note-editor ${value.trim() ? '' : 'is-empty'}`}
-        contentEditable
-        suppressContentEditableWarning
-        role="textbox"
-        aria-label={label}
-        data-placeholder={placeholder}
-        dangerouslySetInnerHTML={{ __html: renderLinkedNoteHtml(value, links, field) }}
-        onFocus={(event) => event.currentTarget.classList.remove('is-empty')}
-        onBeforeInput={(event) => {
-          const data = (event.nativeEvent as InputEvent).data;
-          if (data !== '@' && data !== '＠') return;
-          event.preventDefault();
-          const selected = window.getSelection()?.toString().trim();
-          const currentText = plainTextRef.current || getEditorPlainText(event.currentTarget);
-          onInlineDateTrigger(`${currentText}@`, event.currentTarget, selected);
+        onChange={(html) => {
+          onChange(html);
         }}
-        onKeyDown={deleteAdjacentChip}
-        onInput={(event) => {
-          const text = getEditorPlainText(event.currentTarget);
-          plainTextRef.current = text;
-          event.currentTarget.classList.toggle('is-empty', !text.trim());
+        onAtSignTrigger={(currentHtml, target, selectedText) => {
+          onInlineDateTrigger(currentHtml, target, selectedText);
         }}
-        onBlur={(event) => {
-          const text = getEditorPlainText(event.currentTarget);
-          plainTextRef.current = text;
-          event.currentTarget.classList.toggle('is-empty', !text.trim());
-          onChange(text);
-        }}
-        onPointerUp={(event) => onSelectText(event.currentTarget)}
-        onClick={(event) => {
-          const target = event.target as HTMLElement;
-          const link = target.closest<HTMLElement>('.inline-date-link');
-          const date = link?.dataset.date;
-          if (date && link) {
-            setViewLink({
-              date,
-              label: link.dataset.label || link.textContent || '',
-              source: link.dataset.source || label,
-            });
-          }
-        }}
+        onSelectionChange={onSelectText}
+        onInlineDateClick={setViewLink}
+        onFocus={() => {}}
+        onBlur={() => {}}
       />
       {viewLink && (
         <div className="inline-date-view-popover" onMouseDown={(event) => {
@@ -410,7 +373,33 @@ function InlineDateNote({
 function loadNotesFromLocal(weekKey: string): Record<string, ClientNote> {
   try {
     const raw = localStorage.getItem(`MF_WEEKLY_CLIENT_NOTES_${weekKey}`);
-    return raw ? JSON.parse(raw) : {};
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, ClientNote>;
+    const normalized = Object.fromEntries(Object.entries(parsed).map(([clientName, note]) => {
+      const progress = normalizeLegacyNoteText(note.progress || '');
+      const nextPush = normalizeLegacyNoteText(note.nextPush || '');
+      const companyHelp = normalizeLegacyNoteText(note.companyHelp || '');
+      const fieldText: Record<TextFieldKey, string> = { progress, nextPush, companyHelp };
+      const dateLinks = (note.dateLinks || []).filter((link) => {
+        if (!link.label?.trim()) return false;
+        if (link.field) return fieldText[link.field]?.includes(link.label);
+        return Object.values(fieldText).some((text) => text.includes(link.label));
+      });
+      return [
+      clientName,
+      {
+        ...note,
+        progress,
+        nextPush,
+        companyHelp,
+        dateLinks,
+      },
+    ];
+    }));
+    if (JSON.stringify(normalized) !== JSON.stringify(parsed)) {
+      saveNotesToLocal(weekKey, normalized);
+    }
+    return normalized;
   } catch {
     return {};
   }
@@ -428,9 +417,9 @@ function saveNotesToLocal(weekKey: string, notes: Record<string, ClientNote>) {
 function mapRowToNote(row: ClientWeeklyNoteRow): ClientNote {
   return {
     trafficLight: row.traffic_light as TrafficLight,
-    progress: row.progress_note || '',
-    nextPush: row.next_week_note || '',
-    companyHelp: row.urgent_note || '',
+    progress: normalizeLegacyNoteText(row.progress_note || ''),
+    nextPush: normalizeLegacyNoteText(row.next_week_note || ''),
+    companyHelp: normalizeLegacyNoteText(row.urgent_note || ''),
     footage: String(row.raw_count || 0),
     finished: String(row.edited_count || 0),
     editing: String(row.scheduled_count || 0),
@@ -456,6 +445,7 @@ function mapNoteToPayload(clientName: string, weekKey: string, note: ClientNote)
     scheduled_count: toCount(note.editing),
     unshot_count: toCount(note.planning),
     progress_note: note.progress || '',
+    current_status: '',
     next_week_note: note.nextPush || '',
     urgent_note: note.companyHelp || '',
     date_links: (note.dateLinks || []).map((dl) => ({
@@ -482,12 +472,12 @@ export function WeeklyClientBoard({
   const rollingStartKey = useMemo(() => getRollingStartKey(selectedDate), [selectedDate]);
   const weekDays = useMemo(() => buildWeekDays(rollingStartKey), [rollingStartKey]);
   const [notes, setNotes] = useState<Record<string, ClientNote>>(() => loadNotesFromLocal(weekKey));
+  const notesRef = useRef(notes);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newDateLabel, setNewDateLabel] = useState<Record<string, string>>({});
   const [newDateValue, setNewDateValue] = useState<Record<string, string>>({});
   const [focusDate, setFocusDate] = useState(() => selectedDate || todayKey());
   const [selectionDraft, setSelectionDraft] = useState<SelectionDraft | null>(null);
-  const [activeNoteTabs, setActiveNoteTabs] = useState<Record<string, TextFieldKey>>({});
   const [chatInput, setChatInput] = useState('');
   const [aiChatOpen, setAiChatOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -502,6 +492,10 @@ export function WeeklyClientBoard({
     },
   ]);
   const pendingDateTextRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
 
   // Debounce timer for Supabase sync
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -827,20 +821,32 @@ export function WeeklyClientBoard({
   }, [notes]);
 
   const updateNote = (clientName: string, patch: Partial<ClientNote>) => {
-    setNotes((current) => {
-      const next = {
-        ...current,
-        [clientName]: {
-          ...DEFAULT_NOTE,
-          ...(current[clientName] || {}),
-          ...patch,
-          savedAt: new Date().toISOString(),
-        },
-      };
-      saveNotesToLocal(weekKey, next);
-      syncNoteToBackend(clientName, next[clientName]);
-      return next;
+    const current = notesRef.current;
+    const currentNote = {
+      ...DEFAULT_NOTE,
+      ...(current[clientName] || {}),
+    };
+    const changed = (Object.keys(patch) as Array<keyof ClientNote>).some((key) => {
+      if (key === 'dateLinks') {
+        return JSON.stringify(currentNote.dateLinks) !== JSON.stringify(patch.dateLinks || []);
+      }
+      return currentNote[key] !== patch[key];
     });
+    if (!changed) return;
+
+    const nextNote = {
+      ...currentNote,
+      ...patch,
+      savedAt: new Date().toISOString(),
+    };
+    const next = {
+      ...current,
+      [clientName]: nextNote,
+    };
+    notesRef.current = next;
+    setNotes(next);
+    saveNotesToLocal(weekKey, next);
+    syncNoteToBackend(clientName, nextNote);
   };
 
   const cycleTrafficLight = (clientName: string) => {
@@ -852,6 +858,10 @@ export function WeeklyClientBoard({
   const captureSelection = (clientName: string, field: TextFieldKey, target: HTMLElement) => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || !target.contains(selection.anchorNode)) return;
+    const anchorElement = selection.anchorNode instanceof Element
+      ? selection.anchorNode
+      : selection.anchorNode?.parentElement;
+    if (anchorElement?.closest('.inline-date-link')) return;
     const selected = selection.toString().trim();
     if (selected.length < 2) return;
     const label = selected.length > 30 ? `${selected.slice(0, 30)}...` : selected;
@@ -859,7 +869,7 @@ export function WeeklyClientBoard({
     setNewDateLabel((value) => ({ ...value, [clientName]: label }));
   };
 
-  const openInlineDateDraft = (clientName: string, field: TextFieldKey, value: string, target: HTMLElement, selectedText?: string) => {
+  const openInlineDateDraft = (clientName: string, field: TextFieldKey, value: string, _target: HTMLElement, selectedText?: string) => {
     const triggerIndex = Math.max(value.lastIndexOf('@'), value.lastIndexOf('＠'));
     if (triggerIndex < 0) return;
     if (value.slice(triggerIndex + 1).trim()) return;
@@ -873,8 +883,6 @@ export function WeeklyClientBoard({
     const labelSource = safeSelectedText || safeActiveSelection || (safeRawLabel.length >= 2 ? safeRawLabel : '新增日期連結');
     const label = labelSource.length > 30 ? `${labelSource.slice(0, 30)}...` : labelSource;
     const nextValue = `${value.slice(0, triggerIndex)}${value.slice(triggerIndex + 1)}`;
-    target.innerText = nextValue;
-    target.classList.toggle('is-empty', !nextValue.trim());
     pendingDateTextRef.current[`${clientName}::${field}`] = nextValue;
     setSelectionDraft({ clientName, field, text: label });
     setNewDateLabel((current) => ({ ...current, [clientName]: label }));
@@ -941,6 +949,36 @@ export function WeeklyClientBoard({
 
   return (
     <section className="weekly-client-board">
+      <div className="weekly-board-toolbar">
+        <div className="weekly-board-title">
+          <span className="section-kicker">本週</span>
+          <div>
+            <h2>客戶週控板</h2>
+            <span className="client-count">{clientMap.length} 位客戶</span>
+          </div>
+        </div>
+        <div className="weekly-board-actions">
+          <label className="add-client-control">
+            <Plus size={15} />
+            <input
+              value={newClientName}
+              onChange={(event) => setNewClientName(event.target.value)}
+              onKeyDown={handleCreateClient}
+              placeholder="新增客戶"
+              aria-label="新增客戶，輸入後按 Enter"
+            />
+          </label>
+          <button className="ghost" onClick={() => setReportOpen((value) => !value)}>
+            <Download size={15} />
+            匯出週報
+          </button>
+          <button className="ghost" onClick={() => setHistoryOpen((value) => !value)}>
+            <ChevronDown size={15} />
+            週版本
+          </button>
+        </div>
+      </div>
+
       <div className="production-summary-strip">
         <div className="production-summary-primary">
           <span>目前總毛片數</span>
@@ -989,28 +1027,11 @@ export function WeeklyClientBoard({
                   </button>
                 ))}
                 {dayItems.length > 4 && <small>+{dayItems.length - 4} 項</small>}
-                {dayItems.length === 0 && <small className="empty-day-label">無連結</small>}
+                {dayItems.length === 0 && <small className="empty-day-label">尚無安排</small>}
               </div>
             </div>
           );
         })}
-      </div>
-
-      <div className="weekly-board-toolbar">
-        <div>
-          <span className="modal-eyebrow">Weekly Client Cards</span>
-          <h2>本週業主便利貼</h2>
-        </div>
-        <div className="weekly-board-actions">
-          <button className="ghost" onClick={() => setReportOpen((value) => !value)}>
-            <Download size={15} />
-            匯出週報
-          </button>
-          <button className="ghost" onClick={() => setHistoryOpen((value) => !value)}>
-            <ChevronDown size={15} />
-            查詢週版本
-          </button>
-        </div>
       </div>
 
       {reportOpen && (
@@ -1076,125 +1097,160 @@ export function WeeklyClientBoard({
           {clientMap.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl shadow-sm border border-gray-100 text-gray-500 gap-4">
               <LayoutDashboard className="w-12 h-12 text-gray-300" />
-              <p>尚未建立客戶，請透過下方輸入框新增。</p>
+              <p>尚未建立客戶</p>
             </div>
           ) : clientMap.map((client) => {
             const note = notes[client.name] || DEFAULT_NOTE;
             const trafficLight = note.trafficLight || 'green';
             const traffic = TRAFFIC_LIGHTS[trafficLight];
-            const activeField = activeNoteTabs[client.name] || 'progress';
             return (
-              <article key={client.name} className={`weekly-client-row light-${trafficLight}`}>
-                <div className="client-row-main">
-                  <button
-                    className={`traffic-light-button ${trafficLight}`}
-                    onClick={() => cycleTrafficLight(client.name)}
-                    title={`${traffic.label}：${traffic.description}`}
-                    aria-label={`${client.name} ${traffic.label}`}
-                  >
-                    <span />
-                  </button>
-                  <div>
-                    <Building2 size={17} />
-                    <strong>{client.name}</strong>
+              <article key={client.name} className={`weekly-client-card light-${trafficLight}`}>
+                <header className="client-card-header">
+                  <div className="client-card-title">
+                    <button
+                      className={`traffic-light-button ${trafficLight}`}
+                      onClick={() => cycleTrafficLight(client.name)}
+                      title={`${traffic.label}：${traffic.description}`}
+                      aria-label={`${client.name} ${traffic.label}`}
+                    >
+                      <span />
+                    </button>
+                    <div>
+                      <h2><Building2 size={18} /> {client.name}</h2>
+                      <span className="client-subtitle">{traffic.label} · {traffic.short}</span>
+                    </div>
                   </div>
-                  <span>{traffic.label} · {traffic.short}</span>
-                  <small>{note.savedAt ? `已保存 ${formatDateOnly(note.savedAt)}` : '本週新卡'}</small>
-                </div>
+                  <div className="client-card-stats">
+                    <div className="stat-badge">
+                      <Film size={14} /> <span>毛片</span>
+                      <input value={note.footage} onChange={(e) => updateNote(client.name, { footage: e.target.value })} placeholder="0" />
+                    </div>
+                    <div className="stat-badge">
+                      <Sparkles size={14} /> <span>成片</span>
+                      <input value={note.finished} onChange={(e) => updateNote(client.name, { finished: e.target.value })} placeholder="0" />
+                    </div>
+                    <div className="stat-badge">
+                      <CalendarClock size={14} /> <span>排程</span>
+                      <input value={note.editing} onChange={(e) => updateNote(client.name, { editing: e.target.value })} placeholder="0" />
+                    </div>
+                    <div className="stat-badge">
+                      <ScrollText size={14} /> <span>未拍</span>
+                      <input value={note.planning} onChange={(e) => updateNote(client.name, { planning: e.target.value })} placeholder="0" />
+                    </div>
+                  </div>
+                  <div className="client-card-meta">
+                    <small>{note.savedAt ? `已保存 ${formatDateOnly(note.savedAt)}` : '本週新卡'}</small>
+                  </div>
+                </header>
 
-                <div className="client-row-stats">
-                  <label><Film size={14} />毛片<input value={note.footage} onChange={(event) => updateNote(client.name, { footage: event.target.value })} placeholder="3" /></label>
-                  <label><Sparkles size={14} />成片<input value={note.finished} onChange={(event) => updateNote(client.name, { finished: event.target.value })} placeholder="1" /></label>
-                  <label><CalendarClock size={14} />已排程<input value={note.editing} onChange={(event) => updateNote(client.name, { editing: event.target.value })} placeholder="2" /></label>
-                  <label><ScrollText size={14} />本月未拍<input value={note.planning} onChange={(event) => updateNote(client.name, { planning: event.target.value })} placeholder="1" /></label>
-                </div>
+                <main className="client-card-body">
+                  <div className="client-notes-grid">
+                    <div className="note-block">
+                      <h4>本週進度</h4>
+                      <InlineDateNote
+                        clientName={client.name}
+                        value={getNoteText(note, 'progress')}
+                        links={note.dateLinks || []}
+                        field="progress"
+                        placeholder={getNotePlaceholder('progress')}
+                        draft={selectionDraft}
+                        dateValue={newDateValue[client.name] || ''}
+                        onChange={(value) => updateNoteText(client.name, 'progress', value)}
+                        onInlineDateTrigger={(value, target, selectedText) => openInlineDateDraft(client.name, 'progress', value, target, selectedText)}
+                        onSelectText={(target) => captureSelection(client.name, 'progress', target)}
+                        onOpenDate={setFocusDate}
+                        onDateChange={(value) => setNewDateValue((current) => ({ ...current, [client.name]: value }))}
+                        onCreateLink={() => addDateLink(client.name)}
+                        onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
+                        onAddToChat={() => sendSelectionToChat('add')}
+                        onAskAI={() => sendSelectionToChat('ask')}
+                      />
+                    </div>
+                    <div className="note-block">
+                      <h4>下週推進</h4>
+                      <InlineDateNote
+                        clientName={client.name}
+                        value={getNoteText(note, 'nextPush')}
+                        links={note.dateLinks || []}
+                        field="nextPush"
+                        placeholder={getNotePlaceholder('nextPush')}
+                        draft={selectionDraft}
+                        dateValue={newDateValue[client.name] || ''}
+                        onChange={(value) => updateNoteText(client.name, 'nextPush', value)}
+                        onInlineDateTrigger={(value, target, selectedText) => openInlineDateDraft(client.name, 'nextPush', value, target, selectedText)}
+                        onSelectText={(target) => captureSelection(client.name, 'nextPush', target)}
+                        onOpenDate={setFocusDate}
+                        onDateChange={(value) => setNewDateValue((current) => ({ ...current, [client.name]: value }))}
+                        onCreateLink={() => addDateLink(client.name)}
+                        onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
+                        onAddToChat={() => sendSelectionToChat('add')}
+                        onAskAI={() => sendSelectionToChat('ask')}
+                      />
+                    </div>
+                  </div>
 
-                <div className="client-note-cell">
-                  <div className="client-note-tabs" role="tablist" aria-label={`${client.name} 週便利貼分類`}>
-                    {(Object.keys(FIELD_LABELS) as TextFieldKey[]).map((field) => (
-                      <button
-                        key={field}
-                        type="button"
-                        className={`client-note-tab ${activeField === field ? 'active' : ''}`}
-                        onClick={() => setActiveNoteTabs((current) => ({ ...current, [client.name]: field }))}
-                        role="tab"
-                        aria-selected={activeField === field}
-                      >
-                        {FIELD_LABELS[field]}
-                      </button>
+                  <details className="urgent-accordion">
+                    <summary><AlertTriangle size={15} />緊急或協辦事項</summary>
+                    <div className="accordion-content">
+                      <InlineDateNote
+                        clientName={client.name}
+                        value={getNoteText(note, 'companyHelp')}
+                        links={note.dateLinks || []}
+                        field="companyHelp"
+                        placeholder={getNotePlaceholder('companyHelp')}
+                        draft={selectionDraft}
+                        dateValue={newDateValue[client.name] || ''}
+                        onChange={(value) => updateNoteText(client.name, 'companyHelp', value)}
+                        onInlineDateTrigger={(value, target, selectedText) => openInlineDateDraft(client.name, 'companyHelp', value, target, selectedText)}
+                        onSelectText={(target) => captureSelection(client.name, 'companyHelp', target)}
+                        onOpenDate={setFocusDate}
+                        onDateChange={(value) => setNewDateValue((current) => ({ ...current, [client.name]: value }))}
+                        onCreateLink={() => addDateLink(client.name)}
+                        onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
+                        onAddToChat={() => sendSelectionToChat('add')}
+                        onAskAI={() => sendSelectionToChat('ask')}
+                      />
+                    </div>
+                  </details>
+
+                  <div className="client-tasks-grid">
+                    {(['待拍攝', '待確認事項'] as const).map(type => (
+                      <div key={type} className="task-col">
+                        <h4>{type}</h4>
+                        <div className="task-col-items">
+                          {client.tasks.filter(t => t.task_type === type || (type === '待確認事項' && t.category === '待確認事項') || (type === '待拍攝' && t.category === '待拍攝')).map(t => (
+                            <div key={t.id} className="sleek-task-item" onClick={() => onEditTask(t)}>
+                              <span className="status-dot" data-status={t.status} />
+                              <span className="task-title">{t.title}</span>
+                              {t.deadline && <small className="task-deadline">{formatDateOnly(t.deadline)}</small>}
+                            </div>
+                          ))}
+                        </div>
+                        {onCreateTask && (
+                          <input
+                            type="text"
+                            placeholder={`+ 新增${type}...`}
+                            className="sleek-task-input"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                                onCreateTask(client.name, type, e.currentTarget.value.trim());
+                                e.currentTarget.value = '';
+                              }
+                            }}
+                          />
+                        )}
+                      </div>
                     ))}
                   </div>
-                  <InlineDateNote
-                    clientName={client.name}
-                    label={FIELD_LABELS[activeField]}
-                    value={getNoteText(note, activeField)}
-                    links={note.dateLinks || []}
-                    field={activeField}
-                    placeholder={getNotePlaceholder(activeField)}
-                    draft={selectionDraft}
-                    dateValue={newDateValue[client.name] || ''}
-                    onChange={(value) => updateNoteText(client.name, activeField, value)}
-                    onInlineDateTrigger={(value, target, selectedText) => openInlineDateDraft(client.name, activeField, value, target, selectedText)}
-                    onSelectText={(target) => captureSelection(client.name, activeField, target)}
-                    onOpenDate={setFocusDate}
-                    onDateChange={(value) => setNewDateValue((current) => ({ ...current, [client.name]: value }))}
-                    onCreateLink={() => addDateLink(client.name)}
-                    onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
-                    onAddToChat={() => sendSelectionToChat('add')}
-                    onAskAI={() => sendSelectionToChat('ask')}
-                  />
-                </div>
-
-                <div className="client-task-lists">
-                  {(['待拍攝', '待確認事項'] as const).map(type => (
-                    <div key={type} className="client-task-list">
-                      <strong>{type}</strong>
-                      <div className="client-task-items">
-                        {client.tasks.filter(t => t.task_type === type || (type === '待確認事項' && t.category === '待確認事項') || (type === '待拍攝' && t.category === '待拍攝')).map(t => (
-                          <div key={t.id} className="client-task-item" onClick={() => onEditTask(t)}>
-                            <span className="status-dot" data-status={t.status} />
-                            <span>{t.title}</span>
-                            {t.deadline && <small className="task-deadline">{formatDateOnly(t.deadline)}</small>}
-                          </div>
-                        ))}
-                      </div>
-                      {onCreateTask && (
-                        <input 
-                          type="text" 
-                          placeholder={`+ 新增${type}... (按 Enter 儲存)`}
-                          className="compact-task-input"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                              onCreateTask(client.name, type, e.currentTarget.value.trim());
-                              e.currentTarget.value = '';
-                            }
-                          }}
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-
+                </main>
               </article>
             );
           })}
         </div>
 
-        {/* 新增客戶輸入框 */}
-        <div className="mt-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-          <input
-            type="text"
-            className="w-full bg-gray-50 border-none outline-none text-gray-700 placeholder-gray-400 py-2 px-3 rounded text-sm focus:ring-1 focus:ring-emerald-500"
-            placeholder="+ 輸入新客戶名稱並按下 Enter 建立"
-            value={newClientName}
-            onChange={(e) => setNewClientName(e.target.value)}
-            onKeyDown={handleCreateClient}
-          />
-        </div>
-
         <aside className="week-focus-panel">
           <div className="focus-panel-head">
-            <span className="modal-eyebrow">Selected Date</span>
+            <span className="section-kicker">日期焦點</span>
             <h3>{focusedDay ? `${focusedDay.label} ${focusedDay.day}` : focusDate}</h3>
             <p>{focusDate}</p>
           </div>
@@ -1226,8 +1282,8 @@ export function WeeklyClientBoard({
 
           <div className="assistant-reminder-box">
             <div>
-              <span className="modal-eyebrow">AI Assistant</span>
-              <h4>接下來會追你</h4>
+              <span className="section-kicker">秘書提醒</span>
+              <h4>接下來要追</h4>
             </div>
             {clients
               .map((client) => ({
@@ -1278,8 +1334,8 @@ export function WeeklyClientBoard({
               <div className="ai-chat-body">
                 <div className="ai-chat-head">
               <div>
-                <span className="modal-eyebrow">Chat With AI</span>
-                <h4>側邊助理</h4>
+                <span className="section-kicker">對話</span>
+                <h4>AI 助理</h4>
               </div>
               <MessageCircle size={18} />
             </div>

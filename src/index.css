@@ -1,30 +1,30 @@
 :root {
-  --bg: #ece5d8;
-  --bg-elevated: #f3eee4;
-  --surface: #fbf8f1;
-  --surface-raised: #f1eadf;
-  --surface-hover: #e9dfd0;
-  --line: #d8cbb8;
-  --line-strong: #b9aa95;
-  --text-main: #3f3a34;
-  --text-muted: #81776a;
-  --text-soft: #5f584f;
-  --accent: #9aa184;
-  --accent-strong: #5f6f52;
-  --accent-soft: rgba(154, 161, 132, 0.2);
-  --accent-line: rgba(95, 111, 82, 0.36);
-  --success: #718767;
-  --success-soft: rgba(113, 135, 103, 0.16);
-  --warning: #b8795f;
-  --warning-soft: rgba(184, 121, 95, 0.16);
-  --danger: #a8665f;
-  --danger-soft: rgba(168, 102, 95, 0.14);
-  --info: #8797a5;
-  --info-soft: rgba(135, 151, 165, 0.16);
-  --violet: #a68686;
-  --violet-soft: rgba(166, 134, 134, 0.14);
-  --shadow: 0 18px 44px rgba(82, 66, 45, 0.18);
-  --shadow-soft: 0 10px 28px rgba(82, 66, 45, 0.1);
+  --bg: #eef0ec;
+  --bg-elevated: #e4e8e2;
+  --surface: #fff;
+  --surface-raised: #f6f7f4;
+  --surface-hover: #ecefe9;
+  --line: #d9ddd5;
+  --line-strong: #b9c0b5;
+  --text-main: #292c28;
+  --text-muted: #747a72;
+  --text-soft: #50564f;
+  --accent: #aab29f;
+  --accent-strong: #596451;
+  --accent-soft: rgba(120, 135, 109, 0.14);
+  --accent-line: rgba(89, 100, 81, 0.32);
+  --success: #66795f;
+  --success-soft: rgba(102, 121, 95, 0.13);
+  --warning: #9c7048;
+  --warning-soft: rgba(177, 139, 82, 0.14);
+  --danger: #9a5b50;
+  --danger-soft: rgba(154, 91, 80, 0.13);
+  --info: #647985;
+  --info-soft: rgba(100, 121, 133, 0.13);
+  --violet: #83717e;
+  --violet-soft: rgba(131, 113, 126, 0.12);
+  --shadow: 0 20px 50px rgba(39, 48, 38, 0.12);
+  --shadow-soft: 0 6px 20px rgba(39, 48, 38, 0.07);
 
   --border: var(--line);
   --card-bg: var(--surface-raised);
@@ -44,11 +44,7 @@ body {
   margin: 0;
   min-height: 100vh;
   padding: 16px 0 24px;
-  background:
-    radial-gradient(circle at 18% 0%, rgba(154, 161, 132, 0.22), transparent 300px),
-    radial-gradient(circle at 86% 10%, rgba(184, 121, 95, 0.12), transparent 280px),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.32), transparent 280px),
-    var(--bg);
+  background: var(--bg);
   color: var(--text-main);
   font-family: Inter, "Noto Sans TC", "Microsoft JhengHei", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
