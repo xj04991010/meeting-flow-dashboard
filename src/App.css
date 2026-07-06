@@ -3878,6 +3878,42 @@ body {
   flex-wrap: nowrap;
 }
 
+.client-sync-indicator {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.client-sync-indicator.is-saved {
+  border-color: color-mix(in srgb, var(--success) 32%, transparent);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.client-sync-indicator.is-local-only {
+  border-color: color-mix(in srgb, var(--warning) 38%, transparent);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.client-sync-retry.ghost {
+  min-height: 26px;
+  gap: 4px;
+  padding: 0 7px;
+  border-color: currentColor;
+  color: inherit;
+  font-size: 0.72rem;
+}
+
 .add-client-control {
   min-height: 36px;
   width: 188px;
@@ -4313,6 +4349,12 @@ body {
     width: 100%;
     display: grid;
     grid-template-columns: 1fr 1fr;
+  }
+
+  .client-sync-indicator {
+    width: 100%;
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 
   .add-client-control {

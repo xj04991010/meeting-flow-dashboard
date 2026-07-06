@@ -65,6 +65,12 @@ function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+async function throwApiError(response: Response, fallbackMessage: string): Promise<never> {
+  const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
+  const detail = body?.error || body?.message;
+  throw new Error(detail ? `${fallbackMessage}: ${detail}` : `${fallbackMessage}: ${response.status}`);
+}
+
 // ─── 讀取 ─────────────────────────────────
 
 /** 取得周曆視圖資料（含所有 tasks, events, batches） */
@@ -178,9 +184,7 @@ export async function fetchClientNotes(weekKey: string): Promise<ClientWeeklyNot
   url.searchParams.append('week_key', weekKey);
   const res = await fetch(url.toString(), { headers: getAuthHeaders() });
   if (!res.ok) {
-    // 後端尚未實作時，靜默回空陣列（向下相容）
-    if (res.status === 404) return [];
-    throw new Error(`Failed to fetch client notes: ${res.status}`);
+    await throwApiError(res, 'Failed to fetch client notes');
   }
   const data = await res.json();
   return data.notes || data || [];
@@ -193,8 +197,8 @@ export async function saveClientNote(note: Omit<ClientWeeklyNoteRow, 'id' | 'use
     headers: getAuthHeaders(),
     body: JSON.stringify(note),
   });
-  if (!res.ok && res.status !== 404) {
-    throw new Error(`Failed to save client note: ${res.status}`);
+  if (!res.ok) {
+    await throwApiError(res, 'Failed to save client note');
   }
 }
 
@@ -208,8 +212,8 @@ export async function batchSaveClientNotes(
     headers: getAuthHeaders(),
     body: JSON.stringify({ week_key: weekKey, notes }),
   });
-  if (!res.ok && res.status !== 404) {
-    throw new Error(`Failed to batch save client notes: ${res.status}`);
+  if (!res.ok) {
+    await throwApiError(res, 'Failed to batch save client notes');
   }
 }
 
@@ -221,8 +225,7 @@ export async function fetchClients(): Promise<ClientRow[]> {
     headers: getAuthHeaders(),
   });
   if (!res.ok) {
-    if (res.status === 404) return [];
-    throw new Error(`Failed to fetch clients: ${res.status}`);
+    await throwApiError(res, 'Failed to fetch clients');
   }
   const data = await res.json();
   return data.clients || data || [];

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RichNoteEditor } from './RichNoteEditor';
-import { AlertTriangle, Building2, CalendarClock, ChevronDown, Clipboard, Download, Film, LayoutDashboard, Link2, MessageCircle, Plus, ScrollText, Send, Sparkles } from 'lucide-react';
+import { AlertTriangle, Building2, CalendarClock, CheckCircle2, ChevronDown, Clipboard, CloudOff, Download, Film, LayoutDashboard, Link2, LoaderCircle, MessageCircle, Plus, RefreshCw, ScrollText, Send, Sparkles } from 'lucide-react';
 import type { CalendarIntentRow, ClientRow, ClientWeeklyNoteRow, TaskRow } from '../types';
 import { formatDateOnly } from '../utils';
-import { fetchClientNotes, saveClientNote } from '../api';
+import { batchSaveClientNotes, fetchClientNotes, saveClientNote } from '../api';
 
 type WeeklyClientBoardProps = {
   tasks: TaskRow[];
@@ -47,6 +47,7 @@ type CalendarItem = {
 
 type TextFieldKey = 'progress' | 'nextPush' | 'companyHelp';
 type TrafficLight = 'green' | 'yellow' | 'red';
+type SyncState = 'loading' | 'saving' | 'saved' | 'local-only';
 
 type SelectionDraft = {
   clientName: string;
@@ -473,6 +474,9 @@ export function WeeklyClientBoard({
   const weekDays = useMemo(() => buildWeekDays(rollingStartKey), [rollingStartKey]);
   const [notes, setNotes] = useState<Record<string, ClientNote>>(() => loadNotesFromLocal(weekKey));
   const notesRef = useRef(notes);
+  const syncWeekRef = useRef(weekKey);
+  const [syncState, setSyncState] = useState<SyncState>('loading');
+  const [syncError, setSyncError] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newDateLabel, setNewDateLabel] = useState<Record<string, string>>({});
   const [newDateValue, setNewDateValue] = useState<Record<string, string>>({});
@@ -497,50 +501,92 @@ export function WeeklyClientBoard({
     notesRef.current = notes;
   }, [notes]);
 
-  // Debounce timer for Supabase sync
-  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingSyncRef = useRef<{ clientName: string; note: ClientNote } | null>(null);
+  const syncTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const syncFailuresRef = useRef(new Set<string>());
 
-  // Debounced sync to Supabase
   const syncNoteToBackend = useCallback((clientName: string, note: ClientNote) => {
-    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
-    pendingSyncRef.current = { clientName, note };
-    syncTimerRef.current = setTimeout(() => {
-      const pending = pendingSyncRef.current;
-      if (!pending) return;
-      const payload = mapNoteToPayload(pending.clientName, weekKey, pending.note);
-      saveClientNote(payload as any).catch((err) => {
-        console.warn('[MF] Supabase sync failed, localStorage is still saved:', err);
-      });
-      pendingSyncRef.current = null;
+    const targetWeek = weekKey;
+    const syncKey = `${targetWeek}:${clientName}`;
+    const existingTimer = syncTimersRef.current.get(syncKey);
+    if (existingTimer) clearTimeout(existingTimer);
+
+    syncFailuresRef.current.delete(syncKey);
+    if (syncWeekRef.current === targetWeek) {
+      setSyncState('saving');
+      setSyncError('');
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        await saveClientNote(mapNoteToPayload(clientName, targetWeek, note));
+        syncFailuresRef.current.delete(syncKey);
+      } catch (error) {
+        syncFailuresRef.current.add(syncKey);
+        if (syncWeekRef.current === targetWeek) {
+          setSyncError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        syncTimersRef.current.delete(syncKey);
+        if (syncWeekRef.current === targetWeek) {
+          const hasCurrentWeekFailure = [...syncFailuresRef.current]
+            .some((key) => key.startsWith(`${targetWeek}:`));
+          const hasCurrentWeekPending = [...syncTimersRef.current.keys()]
+            .some((key) => key.startsWith(`${targetWeek}:`));
+          setSyncState(hasCurrentWeekFailure ? 'local-only' : hasCurrentWeekPending ? 'saving' : 'saved');
+        }
+      }
     }, 800);
+    syncTimersRef.current.set(syncKey, timer);
   }, [weekKey]);
 
-  // Load from Supabase on week change, fallback to localStorage
   useEffect(() => {
+    syncWeekRef.current = weekKey;
+    setSyncState('loading');
+    setSyncError('');
+    let cancelled = false;
     const localNotes = loadNotesFromLocal(weekKey);
     setNotes(localNotes);
 
     fetchClientNotes(weekKey)
       .then((rows) => {
+        if (cancelled) return;
         if (rows.length > 0) {
-          const merged: Record<string, ClientNote> = { ...localNotes };
+          const currentLocal = notesRef.current;
+          const merged: Record<string, ClientNote> = { ...currentLocal };
           for (const row of rows) {
             const remoteNote = mapRowToNote(row);
-            const localNote = localNotes[row.client_name];
+            const localNote = currentLocal[row.client_name];
             // Remote wins if local has no savedAt or remote is newer
             if (!localNote?.savedAt || (remoteNote.savedAt && remoteNote.savedAt > localNote.savedAt)) {
               merged[row.client_name] = remoteNote;
             }
           }
+          notesRef.current = merged;
           setNotes(merged);
           saveNotesToLocal(weekKey, merged);
         }
+        const hasCurrentWeekFailure = [...syncFailuresRef.current]
+          .some((key) => key.startsWith(`${weekKey}:`));
+        const hasCurrentWeekPending = [...syncTimersRef.current.keys()]
+          .some((key) => key.startsWith(`${weekKey}:`));
+        setSyncState(hasCurrentWeekFailure ? 'local-only' : hasCurrentWeekPending ? 'saving' : 'saved');
       })
       .catch((err) => {
+        if (cancelled) return;
         console.warn('[MF] Failed to load notes from Supabase, using localStorage:', err);
+        setSyncState('local-only');
+        setSyncError(err instanceof Error ? err.message : String(err));
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [weekKey]);
+
+  useEffect(() => () => {
+    syncTimersRef.current.forEach((timer) => clearTimeout(timer));
+    syncTimersRef.current.clear();
+  }, []);
 
   useEffect(() => {
     if (selectedDate) {
@@ -849,6 +895,29 @@ export function WeeklyClientBoard({
     syncNoteToBackend(clientName, nextNote);
   };
 
+  const retryBackendSync = async () => {
+    const payloads = Object.entries(notesRef.current)
+      .map(([clientName, note]) => mapNoteToPayload(clientName, weekKey, note));
+    if (!payloads.length) {
+      setSyncState('saved');
+      setSyncError('');
+      return;
+    }
+
+    setSyncState('saving');
+    setSyncError('');
+    try {
+      await batchSaveClientNotes(weekKey, payloads);
+      [...syncFailuresRef.current]
+        .filter((key) => key.startsWith(`${weekKey}:`))
+        .forEach((key) => syncFailuresRef.current.delete(key));
+      setSyncState('saved');
+    } catch (error) {
+      setSyncState('local-only');
+      setSyncError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const cycleTrafficLight = (clientName: string) => {
     const current = notes[clientName]?.trafficLight || DEFAULT_NOTE.trafficLight;
     const next = TRAFFIC_ORDER[(TRAFFIC_ORDER.indexOf(current) + 1) % TRAFFIC_ORDER.length];
@@ -958,6 +1027,32 @@ export function WeeklyClientBoard({
           </div>
         </div>
         <div className="weekly-board-actions">
+          <div
+            className={`client-sync-indicator is-${syncState}`}
+            role="status"
+            title={syncError || '客戶週進度雲端同步狀態'}
+          >
+            {syncState === 'loading' || syncState === 'saving'
+              ? <LoaderCircle className="spin" size={15} />
+              : syncState === 'local-only'
+                ? <CloudOff size={15} />
+                : <CheckCircle2 size={15} />}
+            <span>
+              {syncState === 'loading'
+                ? '讀取中'
+                : syncState === 'saving'
+                  ? '同步中'
+                  : syncState === 'local-only'
+                    ? '僅存本機'
+                    : '已同步'}
+            </span>
+            {syncState === 'local-only' && (
+              <button type="button" className="ghost client-sync-retry" onClick={retryBackendSync} aria-label="重新同步週進度">
+                <RefreshCw size={13} />
+                重試
+              </button>
+            )}
+          </div>
           <label className="add-client-control">
             <Plus size={15} />
             <input
