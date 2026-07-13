@@ -1442,17 +1442,7 @@ export function WeeklyClientBoard({
             </button>
           </div>
 
-          <div className="client-list-head" aria-hidden="true">
-            <span>燈號</span>
-            <span>客戶</span>
-            <span>目前狀態</span>
-            <span>下週推進</span>
-            <span>最近日期</span>
-            <span>片量</span>
-            <span />
-          </div>
-
-          <div className="client-record-list">
+          <div className="client-quick-list">
             {visibleClients.length === 0 ? (
               <div className="client-empty-state">
                 <Building2 size={24} />
@@ -1472,66 +1462,85 @@ export function WeeklyClientBoard({
               return (
                 <article
                   key={client.name}
-                  className={'client-record-row light-' + trafficLight}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openClientWorkspace(client.name)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      openClientWorkspace(client.name);
-                    }
-                  }}
+                  className={'client-quick-row light-' + trafficLight}
                 >
-                  <button
-                    type="button"
-                    className={'traffic-light-button ' + trafficLight}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      cycleTrafficLight(client.name);
-                    }}
-                    title={traffic.label + '：' + traffic.description}
-                    aria-label={client.name + ' ' + traffic.label}
-                  >
-                    <span />
-                  </button>
-                  <div className="client-record-name">
-                    <strong>{client.name}</strong>
-                    <small>{traffic.short}</small>
-                  </div>
-                  <div className="client-record-text">
-                    <span>目前狀態</span>
-                    <strong>{cleanReportText(note.currentStatus) || '尚未更新'}</strong>
-                  </div>
-                  <div className="client-record-text">
-                    <span>下週推進</span>
-                    <strong>{cleanReportText(note.nextPush) || '尚未安排'}</strong>
-                  </div>
-                  <div className="client-record-date">
+                  <header className="client-quick-identity">
+                    <div>
+                      <button
+                        type="button"
+                        className={'traffic-light-button ' + trafficLight}
+                        onClick={() => cycleTrafficLight(client.name)}
+                        title={traffic.label + '：' + traffic.description}
+                        aria-label={client.name + ' ' + traffic.label}
+                      >
+                        <span />
+                      </button>
+                      <div>
+                        <h3>{client.name}</h3>
+                        <small>{traffic.label} · {traffic.short}</small>
+                      </div>
+                    </div>
+                    <div className="client-quick-inventory" aria-label={client.name + '片量摘要'}>
+                      <span>毛 {toCount(note.footage)}</span>
+                      <span>成 {toCount(note.finished)}</span>
+                      <span>排 {toCount(note.editing)}</span>
+                      <span>未拍 {toCount(note.planning)}</span>
+                    </div>
+                    <div className="client-quick-nearest">
                     {nearest ? (
                       <>
                         <strong>{formatReportDate(nearest.date)}</strong>
                         <span>{nearest.label}</span>
                       </>
-                    ) : <span>無日期</span>}
+                    ) : <span>尚無日期</span>}
+                    </div>
+                    <div className="client-quick-flags">
+                      {cleanReportText(note.shootingNote) && <span>待拍攝</span>}
+                      {cleanReportText(note.companyHelp) && <span className="is-alert">需協辦</span>}
+                    </div>
+                    <button
+                      type="button"
+                      className="client-quick-open"
+                      onClick={() => openClientWorkspace(client.name)}
+                    >
+                      完整資料
+                      <ChevronRight size={15} />
+                    </button>
+                  </header>
+
+                  <div className="client-quick-editors">
+                    {(['currentStatus', 'progress', 'nextPush'] as TextFieldKey[]).map((field) => (
+                      <section key={field} className={'client-quick-field quick-' + field}>
+                        <h4>{FIELD_LABELS[field]}</h4>
+                        <InlineDateNote
+                          clientName={client.name}
+                          value={getNoteText(note, field)}
+                          links={note.dateLinks || []}
+                          field={field}
+                          placeholder={getNotePlaceholder(field)}
+                          draft={selectionDraft}
+                          dateValue={newDateValue[client.name] || ''}
+                          onChange={(value, retainedLinkIds) => updateNoteText(
+                            client.name,
+                            field,
+                            value,
+                            retainedLinkIds,
+                          )}
+                          onSelectText={(selection) => captureSelection(client.name, field, selection)}
+                          onOpenDate={setFocusDate}
+                          onDateChange={(value) => setNewDateValue((current) => ({
+                            ...current,
+                            [client.name]: value,
+                          }))}
+                          onCreateLink={() => addDateLink(client.name)}
+                          onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
+                          onUpdateLink={(id, date) => updateDateLink(client.name, id, date)}
+                          onRemoveLink={(id) => removeDateLink(client.name, id)}
+                          onCancelLink={() => setSelectionDraft(null)}
+                        />
+                      </section>
+                    ))}
                   </div>
-                  <div className="client-record-inventory">
-                    <span>毛 {toCount(note.footage)}</span>
-                    <span>成 {toCount(note.finished)}</span>
-                    <span>排 {toCount(note.editing)}</span>
-                    <span>未拍 {toCount(note.planning)}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="client-record-open"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openClientWorkspace(client.name);
-                    }}
-                    aria-label={'開啟 ' + client.name}
-                  >
-                    <ChevronRight size={17} />
-                  </button>
                 </article>
               );
             })}
