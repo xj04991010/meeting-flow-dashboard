@@ -13,6 +13,7 @@ const InlineDateLinkNode = Node.create({
   inline: true,
   selectable: true,
   atom: true,
+  draggable: false,
 
   addAttributes() {
     return {
@@ -27,7 +28,7 @@ const InlineDateLinkNode = Node.create({
   parseHTML() {
     return [
       {
-        tag: 'span.inline-date-link',
+        tag: 'span[data-type="inline-date-link"]',
         getAttrs: (element) => {
           if (typeof element === 'string') return {};
           return {
@@ -49,6 +50,7 @@ const InlineDateLinkNode = Node.create({
       'span',
       mergeAttributes(HTMLAttributes, {
         class: 'inline-date-link',
+        'data-type': 'inline-date-link',
         'data-id': HTMLAttributes.id,
         'data-date': HTMLAttributes.date,
         'data-label': HTMLAttributes.label,
@@ -109,7 +111,7 @@ export type RichNoteEditorProps = {
   content: string;
   placeholder?: string;
   ariaLabel?: string;
-  onChange: (html: string) => void;
+  onChange: (text: string, retainedLinkIds: string[]) => void;
   onFocus?: () => void;
   onBlur?: () => void;
   onSelectionChange?: (selection: RichNoteSelection | null) => void;
@@ -289,8 +291,11 @@ export function RichNoteEditor({
       const plainText = getEditorPlainText(editor.view.dom as HTMLElement);
       if (plainText === lastEmittedTextRef.current) return;
       lastEmittedTextRef.current = plainText;
+      const retainedLinkIds = Array.from(
+        (editor.view.dom as HTMLElement).querySelectorAll<HTMLElement>('.inline-date-link'),
+      ).map((link) => link.dataset.id || '').filter(Boolean);
       isUpdatingRef.current = true;
-      callbacksRef.current.onChange(plainText);
+      callbacksRef.current.onChange(plainText, retainedLinkIds);
       setTimeout(() => {
         isUpdatingRef.current = false;
       }, 0);

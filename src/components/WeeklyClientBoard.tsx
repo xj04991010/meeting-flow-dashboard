@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RichNoteEditor, type RichNoteSelection } from './RichNoteEditor';
-import { Building2, CalendarClock, CheckCircle2, ChevronDown, Clipboard, CloudOff, Download, Film, LayoutDashboard, Link2, LoaderCircle, MessageCircle, Plus, RefreshCw, ScrollText, Send, Sparkles } from 'lucide-react';
+import { ArrowLeft, Bot, Building2, CalendarClock, CalendarDays, CheckCircle2, ChevronRight, Clipboard, CloudOff, Download, Film, History, Link2, LoaderCircle, Plus, RefreshCw, Search, Send, Sparkles, X } from 'lucide-react';
 import type { CalendarIntentRow, ClientRow, ClientWeeklyNoteRow, TaskRow } from '../types';
 import { formatDateOnly } from '../utils';
 import { askClientAssistant, batchSaveClientNotes, fetchClientNoteWeeks, fetchClientNotes, saveClientNote } from '../api';
@@ -50,6 +50,7 @@ type CalendarItem = {
 type TextFieldKey = 'currentStatus' | 'progress' | 'nextPush' | 'shootingNote' | 'companyHelp';
 type TrafficLight = 'green' | 'yellow' | 'red';
 type SyncState = 'loading' | 'saving' | 'saved' | 'local-only';
+type ClientWorkspaceTab = 'report' | 'dates' | 'history';
 
 type SelectionDraft = {
   clientName: string;
@@ -80,6 +81,14 @@ const FIELD_LABELS: Record<TextFieldKey, string> = {
   shootingNote: '待拍攝內容',
   companyHelp: '需公司判斷或協辦',
 };
+
+const REPORT_FIELD_ORDER: TextFieldKey[] = [
+  'currentStatus',
+  'progress',
+  'nextPush',
+  'shootingNote',
+  'companyHelp',
+];
 
 const SHOOTING_SECTION = '【待拍攝內容】';
 const COMPANY_HELP_SECTION = '【需公司判斷／緊急協辦】';
@@ -356,7 +365,7 @@ function renderLinkedNoteHtml(
   while (index < value.length) {
     const matched = placementByStart.get(index);
     if (matched) {
-      html += `<span class="inline-date-link" contenteditable="false" role="button" tabindex="0" data-id="${escapeHtml(matched.id)}" data-date="${escapeHtml(matched.date)}" data-label="${escapeHtml(matched.label)}" data-source="${escapeHtml(matched.source || '')}" data-start="${matched.start}"><span class="inline-date-link-label">${escapeHtml(matched.label)}</span><span class="inline-date-link-date">${escapeHtml(matched.date.slice(5).replace('-', '/'))}</span></span>`;
+      html += `<span class="inline-date-link" data-type="inline-date-link" contenteditable="false" role="button" tabindex="0" data-id="${escapeHtml(matched.id)}" data-date="${escapeHtml(matched.date)}" data-label="${escapeHtml(matched.label)}" data-source="${escapeHtml(matched.source || '')}" data-start="${matched.start}"><span class="inline-date-link-label">${escapeHtml(matched.label)}</span><span class="inline-date-link-date">${escapeHtml(matched.date.slice(5).replace('-', '/'))}</span></span>`;
       index += matched.label.length;
       continue;
     }
@@ -376,7 +385,7 @@ type InlineDateNoteProps = {
   placeholder: string;
   draft: SelectionDraft | null;
   dateValue: string;
-  onChange: (value: string) => void;
+  onChange: (value: string, retainedLinkIds: string[]) => void;
   onSelectText: (selection: RichNoteSelection | null) => void;
   onOpenDate: (date: string) => void;
   onDateChange: (value: string) => void;
@@ -423,8 +432,8 @@ function InlineDateNote({
         placeholder={placeholder}
         ariaLabel={`${clientName} ${FIELD_LABELS[field]}`}
         className={`rich-note-editor ${value.trim() ? '' : 'is-empty'}`}
-        onChange={(html) => {
-          onChange(html);
+        onChange={(text, retainedLinkIds) => {
+          onChange(text, retainedLinkIds);
         }}
         onSelectionChange={onSelectText}
         onInlineDateClick={setViewLink}
@@ -631,9 +640,12 @@ export function WeeklyClientBoard({
   const [newDateValue, setNewDateValue] = useState<Record<string, string>>({});
   const [focusDate, setFocusDate] = useState(() => selectedDate || todayKey());
   const [selectionDraft, setSelectionDraft] = useState<SelectionDraft | null>(null);
-  const [expandedClient, setExpandedClient] = useState<string | null>(null);
+  const [selectedClient, setSelectedClient] = useState<string | null>(null);
+  const [clientWorkspaceTab, setClientWorkspaceTab] = useState<ClientWorkspaceTab>('report');
+  const [clientQuery, setClientQuery] = useState('');
+  const [attentionOnly, setAttentionOnly] = useState(false);
   const [chatInput, setChatInput] = useState('');
-  const [aiChatOpen, setAiChatOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [chatPending, setChatPending] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportCopied, setReportCopied] = useState(false);
@@ -647,7 +659,6 @@ export function WeeklyClientBoard({
     },
   ]);
   const [currentWeekKey] = useState(() => getWeekStartKey());
-  const isHistoricalWeek = weekKey !== currentWeekKey;
 
   useEffect(() => {
     notesRef.current = notes;
@@ -1002,18 +1013,23 @@ export function WeeklyClientBoard({
   const sendChatMessage = async (message?: string, meta?: string) => {
     const text = (message || chatInput).trim();
     if (!text || chatPending) return;
+    const messageContext = meta || selectedClient || undefined;
+    const scopedPrompt = selectedClient
+      ? `請只針對客戶「${selectedClient}」回答，若資料不足請直接指出缺少什麼：${text}`
+      : text;
     const timestamp = Date.now();
     setChatMessages((current) => ([
       ...current,
-      { id: `${timestamp}-user-${current.length}`, role: 'user', text, meta },
+      { id: `${timestamp}-user-${current.length}`, role: 'user', text, meta: messageContext },
     ]));
     if (!message) setChatInput('');
+    setAssistantOpen(true);
     setChatPending(true);
     try {
-      const answer = await askClientAssistant(text, weekKey);
+      const answer = await askClientAssistant(scopedPrompt, weekKey);
       setChatMessages((current) => ([
         ...current,
-        { id: `${timestamp}-assistant-${current.length}`, role: 'assistant', text: answer },
+        { id: `${timestamp}-assistant-${current.length}`, role: 'assistant', text: answer, meta: messageContext },
       ]));
     } catch {
       setChatMessages((current) => ([
@@ -1021,6 +1037,7 @@ export function WeeklyClientBoard({
         {
           id: `${timestamp}-assistant-${current.length}`,
           role: 'assistant',
+          meta: messageContext,
           text: `目前無法連到 AI。先依本機資料整理：${buildAssistantFallback(text)}`,
         },
       ]));
@@ -1102,11 +1119,18 @@ export function WeeklyClientBoard({
     setSelectionDraft({ clientName, field, ...selection });
   };
 
-  const updateNoteText = (clientName: string, field: TextFieldKey, value: string) => {
+  const updateNoteText = (
+    clientName: string,
+    field: TextFieldKey,
+    value: string,
+    retainedLinkIds?: string[],
+  ) => {
     const current = notes[clientName] || DEFAULT_NOTE;
+    const retainedIds = retainedLinkIds ? new Set(retainedLinkIds) : null;
     const occupied: Array<{ start: number; end: number }> = [];
     const dateLinks = (current.dateLinks || []).flatMap((link) => {
       if (link.field !== field && link.source !== FIELD_LABELS[field]) return [link];
+      if (retainedIds && !retainedIds.has(link.id)) return [];
       const candidates: number[] = [];
       let searchFrom = 0;
       while (searchFrom <= value.length - link.label.length) {
@@ -1188,19 +1212,70 @@ export function WeeklyClientBoard({
     });
   };
 
+  const visibleClients = clientMap
+    .filter((client) => {
+      const note = notes[client.name] || DEFAULT_NOTE;
+      const query = clientQuery.trim();
+      const matchesQuery = !query
+        || client.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())
+        || cleanReportText(note.currentStatus).includes(query)
+        || cleanReportText(note.nextPush).includes(query);
+      const matchesAttention = !attentionOnly || note.trafficLight !== 'green';
+      return matchesQuery && matchesAttention;
+    })
+    .sort((left, right) => {
+      const severity: Record<TrafficLight, number> = { red: 0, yellow: 1, green: 2 };
+      return severity[notes[left.name]?.trafficLight || 'green']
+        - severity[notes[right.name]?.trafficLight || 'green'];
+    });
+
+  const selectedRecord = selectedClient
+    ? clientMap.find((client) => client.name === selectedClient)
+    : undefined;
+  const selectedNote = selectedClient
+    ? notes[selectedClient] || DEFAULT_NOTE
+    : DEFAULT_NOTE;
+  const selectedClientItems = selectedClient
+    ? calendarItems
+      .filter((item) => item.client === selectedClient)
+      .sort((left, right) => left.date.localeCompare(right.date))
+    : [];
+  const visibleChatMessages = selectedClient
+    ? chatMessages.filter((message) => (
+      message.id === 'welcome' || !message.meta || message.meta === selectedClient
+    ))
+    : chatMessages;
+
+  const nearestClientItem = (clientName: string) => calendarItems
+    .filter((item) => item.client === clientName && daysUntil(item.date) >= 0)
+    .sort((left, right) => left.date.localeCompare(right.date))[0];
+
+  const openClientWorkspace = (clientName: string) => {
+    setSelectedClient(clientName);
+    setClientWorkspaceTab('report');
+    setSelectionDraft(null);
+    setAssistantOpen(false);
+  };
+
+  const closeClientWorkspace = () => {
+    setSelectedClient(null);
+    setSelectionDraft(null);
+    setAssistantOpen(false);
+  };
+
   return (
-    <section className="weekly-client-board">
+    <section className="weekly-client-board meetingflow-workspace">
       <div className="weekly-board-toolbar">
         <div className="weekly-board-title">
-          <span className="section-kicker">本週</span>
+          <span className="section-kicker">Weekly control</span>
           <div>
-            <h2>客戶週控板</h2>
-            <span className="client-count">{clientMap.length} 位客戶</span>
+            <h2>客戶週控</h2>
+            <span className="client-count">{clientMap.length} 位客戶 · {weekKey}</span>
           </div>
         </div>
         <div className="weekly-board-actions">
           <div
-            className={`client-sync-indicator is-${syncState}`}
+            className={'client-sync-indicator is-' + syncState}
             role="status"
             title={syncError || '客戶週進度雲端同步狀態'}
           >
@@ -1219,7 +1294,12 @@ export function WeeklyClientBoard({
                     : '已同步'}
             </span>
             {syncState === 'local-only' && (
-              <button type="button" className="ghost client-sync-retry" onClick={retryBackendSync} aria-label="重新同步週進度">
+              <button
+                type="button"
+                className="ghost client-sync-retry"
+                onClick={retryBackendSync}
+                aria-label="重新同步週進度"
+              >
                 <RefreshCw size={13} />
                 重試
               </button>
@@ -1235,20 +1315,20 @@ export function WeeklyClientBoard({
               aria-label="新增客戶，輸入後按 Enter"
             />
           </label>
-          <button className="ghost" onClick={() => setReportOpen((value) => !value)}>
+          <button className="ghost" onClick={() => setReportOpen(true)}>
             <Download size={15} />
             匯出週報
           </button>
-          <button className="ghost" onClick={() => setHistoryOpen((value) => !value)}>
-            <ChevronDown size={15} />
+          <button className="ghost" onClick={() => setHistoryOpen(true)}>
+            <History size={15} />
             週版本
           </button>
         </div>
       </div>
 
-      <div className="production-summary-strip">
+      <div className="production-summary-strip" aria-label="片量總覽">
         <div className="production-summary-primary">
-          <span>目前總毛片數</span>
+          <span>總毛片</span>
           <strong>{productionTotals.footage}</strong>
         </div>
         <div>
@@ -1263,437 +1343,566 @@ export function WeeklyClientBoard({
           <span>本月未拍</span>
           <strong>{productionTotals.monthlyUnshot}</strong>
         </div>
-      </div>
-
-      <div className="week-strip">
-        {weekDays.map((day) => {
-          const dayItems = calendarItems.filter((item) => item.date === day.key);
-          const isToday = day.key === todayKey();
-          const isFocused = day.key === focusDate;
-          return (
-            <div
-              key={day.key}
-              className={`week-strip-day ${isToday ? 'is-today' : ''} ${dayItems.length > 0 ? 'has-items' : ''} ${isFocused ? 'is-focused' : ''}`}
-            >
-              <button className="week-day-head week-day-select" onClick={() => setFocusDate(day.key)}>
-                <strong>{day.label}</strong>
-                <span>{day.day}</span>
-              </button>
-              <div className="week-day-items">
-                {dayItems.slice(0, 4).map((item) => (
-                  <button
-                    key={item.id}
-                    className={`week-date-pill ${item.type}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setFocusDate(item.date);
-                    }}
-                  >
-                    <span>{item.client}</span>
-                    <strong>{item.label}</strong>
-                  </button>
-                ))}
-                {dayItems.length > 4 && <small>+{dayItems.length - 4} 項</small>}
-                {dayItems.length === 0 && <small className="empty-day-label">尚無安排</small>}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {reportOpen && (
-        <div className="boss-report-panel">
-          <div className="boss-report-head">
-            <div>
-              <span className="modal-eyebrow">Boss Weekly Report</span>
-              <h3>給老闆的週進度通知</h3>
-              <p>可隨時匯出。匯出日會寫進週報，也會留下最近匯出紀錄。</p>
-            </div>
-            <div className="boss-report-actions">
-              <button className="ghost" onClick={copyWeeklyReport}>
-                <Clipboard size={15} />
-                {reportCopied ? '已複製' : '複製全文'}
-              </button>
-              <button className="ghost" onClick={downloadWeeklyReport}>
-                <Download size={15} />
-                下載 TXT
-              </button>
-            </div>
-          </div>
-          <div className="boss-report-controls">
-            <label>
-              匯出日
-              <input
-                type="date"
-                value={reportExportDate}
-                onChange={(event) => setReportExportDate(event.target.value || todayKey())}
-              />
-            </label>
-            {reportExportHistory.length > 0 && (
-              <div className="boss-report-history">
-                <span>最近匯出</span>
-                {reportExportHistory.slice(0, 4).map((record) => (
-                  <small key={`${record.exportedAt}-${record.action}`}>
-                    {record.exportDate} · {record.action === 'copy' ? '複製' : '下載'}
-                  </small>
-                ))}
-              </div>
-            )}
-          </div>
-          <textarea
-            className="boss-report-textarea"
-            value={weeklyBossReport}
-            readOnly
-            aria-label="給老闆的週進度通知"
-          />
+        <div className="production-summary-alert">
+          <span>紅黃燈</span>
+          <strong>{clientMap.filter((client) => (notes[client.name]?.trafficLight || 'green') !== 'green').length}</strong>
         </div>
-      )}
+      </div>
 
-      {historyOpen && (
-        <div className="week-history">
-          {historyWeeks.length === 0 ? (
-            <span>尚無歷史週版本。修改便利貼後會自動保存。</span>
-          ) : (
-            historyWeeks.map((week) => (
+      <div className="week-overview">
+        <div className="week-strip">
+          {weekDays.map((day) => {
+            const dayItems = calendarItems.filter((item) => item.date === day.key);
+            const isToday = day.key === todayKey();
+            const isFocused = day.key === focusDate;
+            return (
               <button
                 type="button"
-                className={week === weekKey ? 'is-active' : ''}
-                key={week}
-                onClick={() => onSelectWeek(week)}
+                key={day.key}
+                className={'week-strip-day '
+                  + (isToday ? 'is-today ' : '')
+                  + (dayItems.length > 0 ? 'has-items ' : '')
+                  + (isFocused ? 'is-focused' : '')}
+                onClick={() => setFocusDate(day.key)}
+                aria-pressed={isFocused}
               >
-                {week}{week === currentWeekKey ? ' · 本週' : ''}
+                <span className="week-day-head">
+                  <strong>{day.label}</strong>
+                  <b>{day.day}</b>
+                </span>
+                <span className="week-day-preview">
+                  {dayItems.slice(0, 2).map((item) => (
+                    <span key={item.id} className={'week-date-pill ' + item.type}>
+                      <small>{item.client}</small>
+                      <strong>{item.label}</strong>
+                    </span>
+                  ))}
+                  {dayItems.length > 2 && <small className="week-more-count">+{dayItems.length - 2}</small>}
+                  {dayItems.length === 0 && <small className="empty-day-label">無安排</small>}
+                </span>
               </button>
-            ))
-          )}
-          {isHistoricalWeek && (
-            <span className="history-safety-note">目前查看的是獨立週版本，不會覆蓋本週。</span>
-          )}
-        </div>
-      )}
-
-      <div className="weekly-board-split">
-        <div className="client-row-list">
-          {clientMap.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl shadow-sm border border-gray-100 text-gray-500 gap-4">
-              <LayoutDashboard className="w-12 h-12 text-gray-300" />
-              <p>尚未建立客戶</p>
-            </div>
-          ) : clientMap.map((client) => {
-            const note = notes[client.name] || DEFAULT_NOTE;
-            const trafficLight = note.trafficLight || 'green';
-            const traffic = TRAFFIC_LIGHTS[trafficLight];
-            const isExpanded = expandedClient === client.name;
-            const statusPreview = cleanReportText(note.currentStatus) || '尚未更新目前狀態';
-            const nextPreview = cleanReportText(note.nextPush) || '尚未安排下週推進';
-            return (
-              <article key={client.name} className={`weekly-client-card light-${trafficLight} ${isExpanded ? 'is-expanded' : 'is-collapsed'}`}>
-                <header className="client-card-header">
-                  <div className="client-card-title">
-                    <button
-                      className={`traffic-light-button ${trafficLight}`}
-                      onClick={() => cycleTrafficLight(client.name)}
-                      title={`${traffic.label}：${traffic.description}`}
-                      aria-label={`${client.name} ${traffic.label}`}
-                    >
-                      <span />
-                    </button>
-                    <div>
-                      <h2><Building2 size={18} /> {client.name}</h2>
-                      <span className="client-subtitle">{traffic.label} · {traffic.short}</span>
-                    </div>
-                  </div>
-                  <div className="client-card-glance">
-                    <div>
-                      <span>狀態</span>
-                      <strong>{statusPreview}</strong>
-                    </div>
-                    <div>
-                      <span>下週</span>
-                      <strong>{nextPreview}</strong>
-                    </div>
-                    {cleanReportText(note.companyHelp) && (
-                      <div className="client-card-alert-preview">
-                        <span>協辦</span>
-                        <strong>{cleanReportText(note.companyHelp)}</strong>
-                      </div>
-                    )}
-                  </div>
-                  <div className="client-card-stats">
-                    <div className="stat-badge">
-                      <Film size={14} /> <span>毛片</span>
-                      <input value={note.footage} onChange={(e) => updateNote(client.name, { footage: e.target.value })} placeholder="0" />
-                    </div>
-                    <div className="stat-badge">
-                      <Sparkles size={14} /> <span>成片</span>
-                      <input value={note.finished} onChange={(e) => updateNote(client.name, { finished: e.target.value })} placeholder="0" />
-                    </div>
-                    <div className="stat-badge">
-                      <CalendarClock size={14} /> <span>排程</span>
-                      <input value={note.editing} onChange={(e) => updateNote(client.name, { editing: e.target.value })} placeholder="0" />
-                    </div>
-                    <div className="stat-badge">
-                      <ScrollText size={14} /> <span>未拍</span>
-                      <input value={note.planning} onChange={(e) => updateNote(client.name, { planning: e.target.value })} placeholder="0" />
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="client-card-toggle"
-                    aria-expanded={isExpanded}
-                    aria-label={`${isExpanded ? '收合' : '展開'} ${client.name} 週進度`}
-                    title={note.savedAt ? `已保存 ${formatDateOnly(note.savedAt)}` : '本週新卡'}
-                    onClick={() => setExpandedClient((current) => current === client.name ? null : client.name)}
-                  >
-                    <span>{isExpanded ? '收合' : '編輯'}</span>
-                    <ChevronDown size={17} />
-                  </button>
-                </header>
-
-                {isExpanded && <main className="client-card-body">
-                  <div className="client-report-guide">
-                    <span>每一段都會保存到本週版本</span>
-                    <strong>框選句子即可標示日期，日期會留在原文並顯示於週曆。</strong>
-                  </div>
-                  <div className="client-report-fields">
-                    <div className="note-block note-block-current">
-                      <h4>{FIELD_LABELS.currentStatus}</h4>
-                      <InlineDateNote
-                        clientName={client.name}
-                        value={getNoteText(note, 'currentStatus')}
-                        links={note.dateLinks || []}
-                        field="currentStatus"
-                        placeholder={getNotePlaceholder('currentStatus')}
-                        draft={selectionDraft}
-                        dateValue={newDateValue[client.name] || ''}
-                        onChange={(value) => updateNoteText(client.name, 'currentStatus', value)}
-                        onSelectText={(selection) => captureSelection(client.name, 'currentStatus', selection)}
-                        onOpenDate={setFocusDate}
-                        onDateChange={(value) => setNewDateValue((current) => ({ ...current, [client.name]: value }))}
-                        onCreateLink={() => addDateLink(client.name)}
-                        onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
-                        onUpdateLink={(id, date) => updateDateLink(client.name, id, date)}
-                        onRemoveLink={(id) => removeDateLink(client.name, id)}
-                        onCancelLink={() => setSelectionDraft(null)}
-                      />
-                    </div>
-                    <div className="note-block">
-                      <h4>{FIELD_LABELS.progress}</h4>
-                      <InlineDateNote
-                        clientName={client.name}
-                        value={getNoteText(note, 'progress')}
-                        links={note.dateLinks || []}
-                        field="progress"
-                        placeholder={getNotePlaceholder('progress')}
-                        draft={selectionDraft}
-                        dateValue={newDateValue[client.name] || ''}
-                        onChange={(value) => updateNoteText(client.name, 'progress', value)}
-                        onSelectText={(selection) => captureSelection(client.name, 'progress', selection)}
-                        onOpenDate={setFocusDate}
-                        onDateChange={(value) => setNewDateValue((current) => ({ ...current, [client.name]: value }))}
-                        onCreateLink={() => addDateLink(client.name)}
-                        onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
-                        onUpdateLink={(id, date) => updateDateLink(client.name, id, date)}
-                        onRemoveLink={(id) => removeDateLink(client.name, id)}
-                        onCancelLink={() => setSelectionDraft(null)}
-                      />
-                    </div>
-                    <div className="note-block">
-                      <h4>{FIELD_LABELS.nextPush}</h4>
-                      <InlineDateNote
-                        clientName={client.name}
-                        value={getNoteText(note, 'nextPush')}
-                        links={note.dateLinks || []}
-                        field="nextPush"
-                        placeholder={getNotePlaceholder('nextPush')}
-                        draft={selectionDraft}
-                        dateValue={newDateValue[client.name] || ''}
-                        onChange={(value) => updateNoteText(client.name, 'nextPush', value)}
-                        onSelectText={(selection) => captureSelection(client.name, 'nextPush', selection)}
-                        onOpenDate={setFocusDate}
-                        onDateChange={(value) => setNewDateValue((current) => ({ ...current, [client.name]: value }))}
-                        onCreateLink={() => addDateLink(client.name)}
-                        onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
-                        onUpdateLink={(id, date) => updateDateLink(client.name, id, date)}
-                        onRemoveLink={(id) => removeDateLink(client.name, id)}
-                        onCancelLink={() => setSelectionDraft(null)}
-                      />
-                    </div>
-                    <div className="note-block note-block-shooting">
-                      <h4>{FIELD_LABELS.shootingNote}</h4>
-                      <InlineDateNote
-                        clientName={client.name}
-                        value={getNoteText(note, 'shootingNote')}
-                        links={note.dateLinks || []}
-                        field="shootingNote"
-                        placeholder={getNotePlaceholder('shootingNote')}
-                        draft={selectionDraft}
-                        dateValue={newDateValue[client.name] || ''}
-                        onChange={(value) => updateNoteText(client.name, 'shootingNote', value)}
-                        onSelectText={(selection) => captureSelection(client.name, 'shootingNote', selection)}
-                        onOpenDate={setFocusDate}
-                        onDateChange={(value) => setNewDateValue((current) => ({ ...current, [client.name]: value }))}
-                        onCreateLink={() => addDateLink(client.name)}
-                        onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
-                        onUpdateLink={(id, date) => updateDateLink(client.name, id, date)}
-                        onRemoveLink={(id) => removeDateLink(client.name, id)}
-                        onCancelLink={() => setSelectionDraft(null)}
-                      />
-                    </div>
-                    <div className="note-block note-block-company">
-                      <h4>{FIELD_LABELS.companyHelp}</h4>
-                      <InlineDateNote
-                        clientName={client.name}
-                        value={getNoteText(note, 'companyHelp')}
-                        links={note.dateLinks || []}
-                        field="companyHelp"
-                        placeholder={getNotePlaceholder('companyHelp')}
-                        draft={selectionDraft}
-                        dateValue={newDateValue[client.name] || ''}
-                        onChange={(value) => updateNoteText(client.name, 'companyHelp', value)}
-                        onSelectText={(selection) => captureSelection(client.name, 'companyHelp', selection)}
-                        onOpenDate={setFocusDate}
-                        onDateChange={(value) => setNewDateValue((current) => ({ ...current, [client.name]: value }))}
-                        onCreateLink={() => addDateLink(client.name)}
-                        onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
-                        onUpdateLink={(id, date) => updateDateLink(client.name, id, date)}
-                        onRemoveLink={(id) => removeDateLink(client.name, id)}
-                        onCancelLink={() => setSelectionDraft(null)}
-                      />
-                    </div>
-                  </div>
-                </main>}
-              </article>
             );
           })}
         </div>
 
-        <aside className="week-focus-panel">
-          <div className="focus-panel-head">
-            <span className="section-kicker">日期焦點</span>
-            <h3>{focusedDay ? `${focusedDay.label} ${focusedDay.day}` : focusDate}</h3>
-            <p>{focusDate}</p>
-          </div>
-
-          <div className="focus-item-list">
-            {focusedItems.length === 0 ? (
-              <div className="focus-empty">
-                <Link2 size={18} />
-                <strong>這天還沒有日期連結</strong>
-                <span>在便利貼裡反白「21號收款」這種文字並指定日期後，它會出現在這裡和上方週曆。</span>
-              </div>
-            ) : (
-              focusedItems.map((item) => (
-                <div key={item.id} className={`focus-item ${item.type}`}>
-                  <span>{item.client}{item.source ? ` · ${item.source}` : ''}</span>
-                  <strong>{item.label}</strong>
-                  {item.type !== 'date-link' && item.item && (
-                    <button
-                      className="ghost compact"
-                      onClick={() => item.type === 'task' ? onEditTask(item.item as TaskRow) : onEditEvent(item.item as CalendarIntentRow)}
-                    >
-                      編輯來源
-                    </button>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="assistant-reminder-box">
-            <div>
-              <span className="section-kicker">秘書提醒</span>
-              <h4>接下來要追</h4>
-            </div>
-            {clients
-              .map((client) => ({
-                name: client.name,
-                light: (notes[client.name]?.trafficLight || 'green') as TrafficLight,
-              }))
-              .filter((client) => client.light !== 'green')
-              .map((client) => (
-                <div key={`light-${client.name}`} className={`assistant-light-alert ${client.light}`}>
-                  <strong>{client.name} · {TRAFFIC_LIGHTS[client.light].label}</strong>
-                  <span>{TRAFFIC_LIGHTS[client.light].description}</span>
-                </div>
-              ))}
-            {assistantReminders.length === 0 ? (
-              <p>目前 14 天內沒有日期連結。你框選文字並指定日期後，助理會把它列入追蹤。</p>
-            ) : (
-              assistantReminders.map((item) => {
-                const urgency = item.days === 0 ? 'is-today' : item.days <= 3 ? 'is-soon' : 'is-normal';
-                return (
+        {focusedItems.length > 0 && (
+          <div className="week-focus-line" aria-label={(focusedDay?.label || focusDate) + '的安排'}>
+            <span className="week-focus-date">
+              <strong>{focusedDay ? focusedDay.label + ' ' + focusedDay.day : focusDate}</strong>
+              <small>{focusDate}</small>
+            </span>
+            <div className="week-focus-items">
+              {focusedItems.map((item) => (
                 <button
-                  key={`assistant-${item.id}`}
-                  className={`assistant-reminder-card ${urgency}`}
-                  onClick={() => setFocusDate(item.date)}
+                  type="button"
+                  key={item.id}
+                  onClick={() => {
+                    if (item.client && clientMap.some((client) => client.name === item.client)) {
+                      openClientWorkspace(item.client);
+                    } else if (item.type === 'task' && item.item) {
+                      onEditTask(item.item as TaskRow);
+                    } else if (item.type === 'event' && item.item) {
+                      onEditEvent(item.item as CalendarIntentRow);
+                    }
+                  }}
                 >
-                  <strong>{item.client}</strong>
-                  <span>{item.label}</span>
-                  <small>{item.days === 0 ? '今天' : `${item.days} 天後`} · {item.date}</small>
+                  <span>{item.client}</span>
+                  <strong>{item.label}</strong>
                 </button>
-                );
-              })
-            )}
+              ))}
+            </div>
           </div>
-        </aside>
+        )}
       </div>
 
-          <div className={`ai-chat-panel ${aiChatOpen ? 'open' : 'collapsed'}`}>
+      {!selectedRecord ? (
+        <div className="client-index-view">
+          <div className="client-index-controls">
+            <div>
+              <h3>全部客戶</h3>
+              <span>{visibleClients.length} 筆</span>
+            </div>
+            <label className="client-search">
+              <Search size={16} />
+              <input
+                type="search"
+                value={clientQuery}
+                onChange={(event) => setClientQuery(event.target.value)}
+                placeholder="搜尋客戶或進度"
+                aria-label="搜尋客戶或進度"
+              />
+            </label>
             <button
               type="button"
-              className="ai-chat-toggle"
-              onClick={() => setAiChatOpen((value) => !value)}
-              aria-expanded={aiChatOpen}
+              className={'attention-filter ' + (attentionOnly ? 'is-active' : '')}
+              onClick={() => setAttentionOnly((value) => !value)}
+              aria-pressed={attentionOnly}
             >
-              <span>
-                <MessageCircle size={17} />
-                AI 助理
-              </span>
-              <ChevronDown size={15} />
+              只看紅黃燈
             </button>
-            {aiChatOpen && (
-              <div className="ai-chat-body">
-                <div className="ai-chat-head">
-              <div>
-                <span className="section-kicker">對話</span>
-                <h4>AI 助理</h4>
+          </div>
+
+          <div className="client-list-head" aria-hidden="true">
+            <span>燈號</span>
+            <span>客戶</span>
+            <span>目前狀態</span>
+            <span>下週推進</span>
+            <span>最近日期</span>
+            <span>片量</span>
+            <span />
+          </div>
+
+          <div className="client-record-list">
+            {visibleClients.length === 0 ? (
+              <div className="client-empty-state">
+                <Building2 size={24} />
+                <strong>沒有符合條件的客戶</strong>
+                <button type="button" className="ghost" onClick={() => {
+                  setClientQuery('');
+                  setAttentionOnly(false);
+                }}>
+                  清除篩選
+                </button>
               </div>
-              <MessageCircle size={18} />
+            ) : visibleClients.map((client) => {
+              const note = notes[client.name] || DEFAULT_NOTE;
+              const trafficLight = note.trafficLight || 'green';
+              const traffic = TRAFFIC_LIGHTS[trafficLight];
+              const nearest = nearestClientItem(client.name);
+              return (
+                <article
+                  key={client.name}
+                  className={'client-record-row light-' + trafficLight}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openClientWorkspace(client.name)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      openClientWorkspace(client.name);
+                    }
+                  }}
+                >
+                  <button
+                    type="button"
+                    className={'traffic-light-button ' + trafficLight}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      cycleTrafficLight(client.name);
+                    }}
+                    title={traffic.label + '：' + traffic.description}
+                    aria-label={client.name + ' ' + traffic.label}
+                  >
+                    <span />
+                  </button>
+                  <div className="client-record-name">
+                    <strong>{client.name}</strong>
+                    <small>{traffic.short}</small>
+                  </div>
+                  <div className="client-record-text">
+                    <span>目前狀態</span>
+                    <strong>{cleanReportText(note.currentStatus) || '尚未更新'}</strong>
+                  </div>
+                  <div className="client-record-text">
+                    <span>下週推進</span>
+                    <strong>{cleanReportText(note.nextPush) || '尚未安排'}</strong>
+                  </div>
+                  <div className="client-record-date">
+                    {nearest ? (
+                      <>
+                        <strong>{formatReportDate(nearest.date)}</strong>
+                        <span>{nearest.label}</span>
+                      </>
+                    ) : <span>無日期</span>}
+                  </div>
+                  <div className="client-record-inventory">
+                    <span>毛 {toCount(note.footage)}</span>
+                    <span>成 {toCount(note.finished)}</span>
+                    <span>排 {toCount(note.editing)}</span>
+                    <span>未拍 {toCount(note.planning)}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="client-record-open"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openClientWorkspace(client.name);
+                    }}
+                    aria-label={'開啟 ' + client.name}
+                  >
+                    <ChevronRight size={17} />
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="client-workspace">
+          <header className="client-workspace-header">
+            <button type="button" className="client-back-button" onClick={closeClientWorkspace}>
+              <ArrowLeft size={17} />
+              全部客戶
+            </button>
+            <div className="client-workspace-identity">
+              <button
+                type="button"
+                className={'traffic-light-button ' + selectedNote.trafficLight}
+                onClick={() => cycleTrafficLight(selectedRecord.name)}
+                title={TRAFFIC_LIGHTS[selectedNote.trafficLight].description}
+                aria-label={selectedRecord.name + ' ' + TRAFFIC_LIGHTS[selectedNote.trafficLight].label}
+              >
+                <span />
+              </button>
+              <div>
+                <h3>{selectedRecord.name}</h3>
+                <span>
+                  {TRAFFIC_LIGHTS[selectedNote.trafficLight].label}
+                  {selectedNote.savedAt ? ' · 已保存 ' + formatDateOnly(selectedNote.savedAt) : ' · 本週新紀錄'}
+                </span>
+              </div>
             </div>
-            <div className="ai-chat-messages" aria-live="polite">
-              {chatMessages.map((message) => (
-                <div key={message.id} className={`ai-chat-message ${message.role}`}>
-                  {message.meta && <small>{message.meta}</small>}
-                  <span>{message.text}</span>
-                </div>
+            <div className="client-inventory-editor" aria-label={selectedRecord.name + '片量'}>
+              <label>
+                <span><Film size={13} />毛片</span>
+                <input
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  value={selectedNote.footage}
+                  onChange={(event) => updateNote(selectedRecord.name, { footage: event.target.value })}
+                  placeholder="0"
+                />
+              </label>
+              <label>
+                <span><Sparkles size={13} />成片</span>
+                <input
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  value={selectedNote.finished}
+                  onChange={(event) => updateNote(selectedRecord.name, { finished: event.target.value })}
+                  placeholder="0"
+                />
+              </label>
+              <label>
+                <span><CalendarClock size={13} />已排程</span>
+                <input
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  value={selectedNote.editing}
+                  onChange={(event) => updateNote(selectedRecord.name, { editing: event.target.value })}
+                  placeholder="0"
+                />
+              </label>
+              <label>
+                <span>本月未拍</span>
+                <input
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  value={selectedNote.planning}
+                  onChange={(event) => updateNote(selectedRecord.name, { planning: event.target.value })}
+                  placeholder="0"
+                />
+              </label>
+            </div>
+          </header>
+
+          <nav className="client-workspace-tabs" aria-label="客戶資料檢視">
+            <button
+              type="button"
+              className={clientWorkspaceTab === 'report' ? 'is-active' : ''}
+              onClick={() => setClientWorkspaceTab('report')}
+            >
+              週報
+            </button>
+            <button
+              type="button"
+              className={clientWorkspaceTab === 'dates' ? 'is-active' : ''}
+              onClick={() => setClientWorkspaceTab('dates')}
+            >
+              日期 <span>{selectedClientItems.length}</span>
+            </button>
+            <button
+              type="button"
+              className={clientWorkspaceTab === 'history' ? 'is-active' : ''}
+              onClick={() => setClientWorkspaceTab('history')}
+            >
+              歷史
+            </button>
+          </nav>
+
+          {clientWorkspaceTab === 'report' && (
+            <main className="client-document" aria-label={selectedRecord.name + '週報'}>
+              {REPORT_FIELD_ORDER.map((field) => (
+                <section key={field} className={'client-document-section document-' + field}>
+                  <h4>{FIELD_LABELS[field]}</h4>
+                  <InlineDateNote
+                    clientName={selectedRecord.name}
+                    value={getNoteText(selectedNote, field)}
+                    links={selectedNote.dateLinks || []}
+                    field={field}
+                    placeholder={getNotePlaceholder(field)}
+                    draft={selectionDraft}
+                    dateValue={newDateValue[selectedRecord.name] || ''}
+                    onChange={(value, retainedLinkIds) => updateNoteText(
+                      selectedRecord.name,
+                      field,
+                      value,
+                      retainedLinkIds,
+                    )}
+                    onSelectText={(selection) => captureSelection(selectedRecord.name, field, selection)}
+                    onOpenDate={setFocusDate}
+                    onDateChange={(value) => setNewDateValue((current) => ({
+                      ...current,
+                      [selectedRecord.name]: value,
+                    }))}
+                    onCreateLink={() => addDateLink(selectedRecord.name)}
+                    onCreateLinkForDate={(date) => addDateLink(selectedRecord.name, undefined, date)}
+                    onUpdateLink={(id, date) => updateDateLink(selectedRecord.name, id, date)}
+                    onRemoveLink={(id) => removeDateLink(selectedRecord.name, id)}
+                    onCancelLink={() => setSelectionDraft(null)}
+                  />
+                </section>
               ))}
-              {chatPending && (
-                <div className="ai-chat-message assistant is-thinking">
-                  <LoaderCircle className="spin" size={14} />
-                  <span>正在讀取這週的客戶資料...</span>
+            </main>
+          )}
+
+          {clientWorkspaceTab === 'dates' && (
+            <div className="client-date-view">
+              <div className="client-view-heading">
+                <div>
+                  <span className="section-kicker">Linked dates</span>
+                  <h4>所有日期</h4>
+                </div>
+                <CalendarDays size={19} />
+              </div>
+              {selectedClientItems.length === 0 ? (
+                <div className="client-view-empty">
+                  <Link2 size={20} />
+                  <strong>目前沒有日期</strong>
+                </div>
+              ) : (
+                <div className="client-date-list">
+                  {selectedClientItems.map((item) => (
+                    <article key={item.id}>
+                      <time dateTime={item.date}>
+                        <strong>{formatReportDate(item.date)}</strong>
+                        <span>{item.date}</span>
+                      </time>
+                      <div>
+                        <span>{item.source || (item.type === 'task' ? '待辦' : item.type === 'event' ? '行程' : '週報')}</span>
+                        <strong>{item.label}</strong>
+                      </div>
+                      <button
+                        type="button"
+                        className="ghost compact"
+                        onClick={() => {
+                          setFocusDate(item.date);
+                          if (item.type === 'task' && item.item) onEditTask(item.item as TaskRow);
+                          if (item.type === 'event' && item.item) onEditEvent(item.item as CalendarIntentRow);
+                        }}
+                      >
+                        {item.type === 'date-link' ? '查看週曆' : '編輯來源'}
+                      </button>
+                    </article>
+                  ))}
                 </div>
               )}
             </div>
+          )}
+
+          {clientWorkspaceTab === 'history' && (
+            <div className="client-history-view">
+              <div className="client-view-heading">
+                <div>
+                  <span className="section-kicker">Weekly snapshots</span>
+                  <h4>週版本</h4>
+                </div>
+                <History size={19} />
+              </div>
+              <p>每週版本獨立保存。開啟舊版本不會覆蓋目前這一週。</p>
+              <div className="client-history-list">
+                {historyWeeks.length === 0 ? (
+                  <div className="client-view-empty">
+                    <History size={20} />
+                    <strong>尚無歷史週版本</strong>
+                  </div>
+                ) : historyWeeks.map((week) => (
+                  <button
+                    type="button"
+                    key={week}
+                    className={week === weekKey ? 'is-active' : ''}
+                    onClick={() => onSelectWeek(week)}
+                  >
+                    <span>{week}</span>
+                    <small>{week === currentWeekKey ? '本週' : '歷史版本'}</small>
+                    <ChevronRight size={16} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <aside className={'client-assistant-dock ' + (assistantOpen ? 'is-open' : '')}>
+            {assistantOpen && (
+              <div className="client-assistant-conversation" aria-live="polite">
+                <div className="client-assistant-head">
+                  <div>
+                    <Bot size={18} />
+                    <strong>{selectedRecord.name} 的 AI 助理</strong>
+                  </div>
+                  <button type="button" onClick={() => setAssistantOpen(false)} aria-label="收合 AI 對話">
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="client-assistant-messages">
+                  {visibleChatMessages.map((message) => (
+                    <div key={message.id} className={'ai-chat-message ' + message.role}>
+                      <span>{message.text}</span>
+                    </div>
+                  ))}
+                  {chatPending && (
+                    <div className="ai-chat-message assistant is-thinking">
+                      <LoaderCircle className="spin" size={14} />
+                      <span>正在讀取 {selectedRecord.name} 的本週資料...</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
             <form
-              className="ai-chat-form"
+              className="client-assistant-form"
               onSubmit={(event) => {
                 event.preventDefault();
                 void sendChatMessage();
               }}
             >
+              <button
+                type="button"
+                className="client-assistant-toggle"
+                onClick={() => setAssistantOpen((value) => !value)}
+                aria-expanded={assistantOpen}
+                aria-label="開啟 AI 助理"
+              >
+                <Bot size={18} />
+              </button>
               <input
                 value={chatInput}
+                onFocus={() => setAssistantOpen(true)}
                 onChange={(event) => setChatInput(event.target.value)}
-                placeholder="問 AI：這週誰需要追？"
-                aria-label="問 AI"
+                placeholder={'詢問 AI 關於 ' + selectedRecord.name}
+                aria-label={'詢問 AI 關於 ' + selectedRecord.name}
               />
               <button type="submit" aria-label="送出問題" disabled={chatPending || !chatInput.trim()}>
-                {chatPending ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}
+                {chatPending ? <LoaderCircle className="spin" size={16} /> : <Send size={16} />}
               </button>
             </form>
+          </aside>
+        </div>
+      )}
+
+      {reportOpen && (
+        <div
+          className="workspace-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setReportOpen(false);
+          }}
+        >
+          <section className="boss-report-modal" role="dialog" aria-modal="true" aria-label="匯出週報">
+            <header>
+              <div>
+                <span className="section-kicker">Boss weekly report</span>
+                <h3>匯出給老闆</h3>
               </div>
-            )}
-          </div>
+              <button type="button" className="modal-close-button" onClick={() => setReportOpen(false)} aria-label="關閉匯出視窗">
+                <X size={18} />
+              </button>
+            </header>
+            <div className="boss-report-controls">
+              <label>
+                <span>匯出日</span>
+                <input
+                  type="date"
+                  value={reportExportDate}
+                  onChange={(event) => setReportExportDate(event.target.value || todayKey())}
+                />
+              </label>
+              {reportExportHistory.length > 0 && (
+                <div className="boss-report-history">
+                  <span>最近匯出</span>
+                  {reportExportHistory.slice(0, 4).map((record) => (
+                    <small key={record.exportedAt + '-' + record.action}>
+                      {record.exportDate} · {record.action === 'copy' ? '複製' : '下載'}
+                    </small>
+                  ))}
+                </div>
+              )}
+            </div>
+            <textarea
+              className="boss-report-textarea"
+              value={weeklyBossReport}
+              readOnly
+              aria-label="給老闆的週進度通知"
+            />
+            <footer>
+              <button className="ghost" onClick={copyWeeklyReport}>
+                <Clipboard size={15} />
+                {reportCopied ? '已複製' : '複製全文'}
+              </button>
+              <button className="primary-action" onClick={downloadWeeklyReport}>
+                <Download size={15} />
+                下載 TXT
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {historyOpen && (
+        <div
+          className="workspace-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setHistoryOpen(false);
+          }}
+        >
+          <section className="week-history-modal" role="dialog" aria-modal="true" aria-label="週版本">
+            <header>
+              <div>
+                <span className="section-kicker">Weekly snapshots</span>
+                <h3>週版本</h3>
+              </div>
+              <button type="button" className="modal-close-button" onClick={() => setHistoryOpen(false)} aria-label="關閉週版本">
+                <X size={18} />
+              </button>
+            </header>
+            <p>每一週都獨立保存，查看舊週不會取代本週資料。</p>
+            <div className="week-history-modal-list">
+              {historyWeeks.length === 0 ? (
+                <span>尚無歷史週版本。</span>
+              ) : historyWeeks.map((week) => (
+                <button
+                  type="button"
+                  className={week === weekKey ? 'is-active' : ''}
+                  key={week}
+                  onClick={() => {
+                    onSelectWeek(week);
+                    setHistoryOpen(false);
+                  }}
+                >
+                  <span>{week}</span>
+                  <small>{week === currentWeekKey ? '本週' : '歷史版本'}</small>
+                  <ChevronRight size={16} />
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
