@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RichNoteEditor, type RichNoteSelection } from './RichNoteEditor';
-import { ArrowLeft, Bot, Building2, CalendarClock, CalendarDays, CheckCircle2, ChevronRight, Clipboard, CloudOff, Download, Film, History, Link2, LoaderCircle, Plus, RefreshCw, Search, Send, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, Bot, Building2, CalendarDays, CheckCircle2, ChevronRight, Clipboard, CloudOff, Download, History, Link2, LoaderCircle, Plus, RefreshCw, Search, Send, X } from 'lucide-react';
 import type { CalendarIntentRow, ClientRow, ClientWeeklyNoteRow, TaskRow } from '../types';
 import { formatDateOnly } from '../utils';
 import { askClientAssistant, batchSaveClientNotes, fetchClientNoteWeeks, fetchClientNotes, saveClientNote } from '../api';
@@ -861,21 +861,6 @@ export function WeeklyClientBoard({
 
   const focusedDay = weekDays.find((day) => day.key === focusDate);
 
-  const productionTotals = useMemo(() => clients.reduce((totals, client) => {
-    const note = notes[client.name] || DEFAULT_NOTE;
-    return {
-      footage: totals.footage + toCount(note.footage),
-      finished: totals.finished + toCount(note.finished),
-      scheduled: totals.scheduled + toCount(note.editing),
-      monthlyUnshot: totals.monthlyUnshot + toCount(note.planning),
-    };
-  }, {
-    footage: 0,
-    finished: 0,
-    scheduled: 0,
-    monthlyUnshot: 0,
-  }), [clients, notes]);
-
   const assistantReminders = useMemo(() => (
     calendarItems
       .map((item) => ({ ...item, days: daysUntil(item.date) }))
@@ -999,7 +984,7 @@ export function WeeklyClientBoard({
     }
 
     if (/毛片|成片|排程|未拍|片量/.test(prompt)) {
-      return `目前總毛片 ${productionTotals.footage}、成片 ${productionTotals.finished}、已排程 ${productionTotals.scheduled}、本月未拍 ${productionTotals.monthlyUnshot}。`;
+      return '片量數字已從工作表移除。請直接查看各客戶的目前狀態、拍攝內容與日期紀錄。';
     }
 
     const nextReminder = assistantReminders[0];
@@ -1326,29 +1311,6 @@ export function WeeklyClientBoard({
         </div>
       </div>
 
-      <div className="production-summary-strip" aria-label="片量總覽">
-        <div className="production-summary-primary">
-          <span>總毛片</span>
-          <strong>{productionTotals.footage}</strong>
-        </div>
-        <div>
-          <span>成片</span>
-          <strong>{productionTotals.finished}</strong>
-        </div>
-        <div>
-          <span>已排程</span>
-          <strong>{productionTotals.scheduled}</strong>
-        </div>
-        <div>
-          <span>本月未拍</span>
-          <strong>{productionTotals.monthlyUnshot}</strong>
-        </div>
-        <div className="production-summary-alert">
-          <span>紅黃燈</span>
-          <strong>{clientMap.filter((client) => (notes[client.name]?.trafficLight || 'green') !== 'green').length}</strong>
-        </div>
-      </div>
-
       <div className="week-overview">
         <div className="week-strip">
           {weekDays.map((day) => {
@@ -1480,12 +1442,6 @@ export function WeeklyClientBoard({
                         <small>{traffic.label} · {traffic.short}</small>
                       </div>
                     </div>
-                    <div className="client-quick-inventory" aria-label={client.name + '片量摘要'}>
-                      <span>毛 {toCount(note.footage)}</span>
-                      <span>成 {toCount(note.finished)}</span>
-                      <span>排 {toCount(note.editing)}</span>
-                      <span>未拍 {toCount(note.planning)}</span>
-                    </div>
                     <div className="client-quick-nearest">
                     {nearest ? (
                       <>
@@ -1570,52 +1526,6 @@ export function WeeklyClientBoard({
                   {selectedNote.savedAt ? ' · 已保存 ' + formatDateOnly(selectedNote.savedAt) : ' · 本週新紀錄'}
                 </span>
               </div>
-            </div>
-            <div className="client-inventory-editor" aria-label={selectedRecord.name + '片量'}>
-              <label>
-                <span><Film size={13} />毛片</span>
-                <input
-                  type="number"
-                  min="0"
-                  inputMode="numeric"
-                  value={selectedNote.footage}
-                  onChange={(event) => updateNote(selectedRecord.name, { footage: event.target.value })}
-                  placeholder="0"
-                />
-              </label>
-              <label>
-                <span><Sparkles size={13} />成片</span>
-                <input
-                  type="number"
-                  min="0"
-                  inputMode="numeric"
-                  value={selectedNote.finished}
-                  onChange={(event) => updateNote(selectedRecord.name, { finished: event.target.value })}
-                  placeholder="0"
-                />
-              </label>
-              <label>
-                <span><CalendarClock size={13} />已排程</span>
-                <input
-                  type="number"
-                  min="0"
-                  inputMode="numeric"
-                  value={selectedNote.editing}
-                  onChange={(event) => updateNote(selectedRecord.name, { editing: event.target.value })}
-                  placeholder="0"
-                />
-              </label>
-              <label>
-                <span>本月未拍</span>
-                <input
-                  type="number"
-                  min="0"
-                  inputMode="numeric"
-                  value={selectedNote.planning}
-                  onChange={(event) => updateNote(selectedRecord.name, { planning: event.target.value })}
-                  placeholder="0"
-                />
-              </label>
             </div>
           </header>
 

@@ -153,51 +153,6 @@ body {
   font-size: 0.76rem;
 }
 
-.production-summary-strip {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--surface);
-}
-
-.production-summary-strip > div,
-.production-summary-primary,
-.production-summary-strip > div:first-child,
-.production-summary-strip > div:last-child {
-  min-height: 48px;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 14px;
-  border: 0;
-  border-right: 1px solid var(--line);
-  border-radius: 0;
-  background: transparent !important;
-}
-
-.production-summary-strip > div:last-child {
-  border-right: 0;
-}
-
-.production-summary-strip span {
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  font-weight: 650;
-}
-
-.production-summary-strip strong {
-  color: var(--text-main);
-  font-size: 1.14rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.production-summary-alert strong {
-  color: var(--danger);
-}
-
 .week-overview {
   overflow: hidden;
   border: 1px solid var(--line);
@@ -534,24 +489,6 @@ body {
 .client-quick-identity small {
   color: var(--text-muted);
   font-size: 0.62rem;
-}
-
-.client-quick-inventory {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 3px;
-}
-
-.client-quick-inventory span {
-  min-width: 0;
-  padding: 4px 2px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--surface);
-  color: var(--text-soft);
-  font-size: 0.6rem;
-  text-align: center;
-  white-space: nowrap;
 }
 
 .client-quick-nearest {
@@ -905,46 +842,6 @@ body {
 .client-workspace-identity span {
   color: var(--text-muted);
   font-size: 0.68rem;
-}
-
-.client-inventory-editor {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(72px, 92px));
-  gap: 5px;
-}
-
-.client-inventory-editor label {
-  min-height: 48px;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 3px 5px;
-  padding: 6px 7px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--surface-raised);
-}
-
-.client-inventory-editor label span {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--text-muted);
-  font-size: 0.61rem;
-  white-space: nowrap;
-}
-
-.client-inventory-editor input {
-  width: 34px;
-  padding: 1px 0;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-main);
-  font-size: 0.83rem;
-  font-weight: 750;
-  text-align: right;
 }
 
 .client-workspace-tabs {
@@ -1589,9 +1486,6 @@ body {
     gap: 8px;
   }
 
-  .client-inventory-editor {
-    grid-template-columns: repeat(4, minmax(66px, 78px));
-  }
 }
 
 @media (max-width: 980px) {
@@ -1652,11 +1546,6 @@ body {
     grid-template-columns: auto minmax(160px, 1fr);
   }
 
-  .client-inventory-editor {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 700px) {
@@ -1700,16 +1589,6 @@ body {
     width: 100%;
   }
 
-  .production-summary-strip {
-    grid-template-columns: repeat(5, minmax(82px, 1fr));
-    overflow-x: auto;
-  }
-
-  .production-summary-strip > div {
-    min-height: 45px;
-    padding: 7px 9px;
-  }
-
   .week-strip {
     min-width: 0;
     grid-auto-flow: column;
@@ -1750,10 +1629,6 @@ body {
     padding: 10px;
     border-right: 0;
     border-bottom: 1px solid var(--line);
-  }
-
-  .client-quick-inventory {
-    width: min(210px, 54vw);
   }
 
   .client-quick-nearest,
@@ -1814,20 +1689,6 @@ body {
 
   .client-workspace-identity {
     grid-row: 2;
-  }
-
-  .client-inventory-editor {
-    grid-column: 1;
-    grid-row: 3;
-  }
-
-  .client-inventory-editor label {
-    grid-template-columns: 1fr;
-  }
-
-  .client-inventory-editor input {
-    width: 100%;
-    text-align: left;
   }
 
   .client-workspace-tabs {
@@ -1918,10 +1779,6 @@ body {
   }
 
   .client-record-name small {
-    display: none;
-  }
-
-  .client-inventory-editor label span svg {
     display: none;
   }
 
