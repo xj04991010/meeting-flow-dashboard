@@ -10,7 +10,8 @@ import {
   updateTask,
   createManualEntry,
   fetchClients,
-  createClient
+  createClient,
+  DashboardAuthError
 } from './api';
 
 import { EditModal } from './components/EditModal';
@@ -62,6 +63,7 @@ function App() {
   const [preferredCity, setPreferredCity] = useState(localStorage.getItem('preferredCity') || '自動定位');
   const [selectedDate, setSelectedDate] = useState('');
   const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -83,7 +85,9 @@ function App() {
       
       const clientsData = await fetchClients();
       setClients(clientsData || []);
+      setAuthRequired(false);
     } catch (error) {
+      if (error instanceof DashboardAuthError) setAuthRequired(true);
       setDashboardError(error instanceof Error ? error.message : '資料同步失敗');
     } finally {
       setLoading(false);
@@ -225,6 +229,27 @@ function App() {
         <Activity className="spin" />
         <span>載入儀表板</span>
       </div>
+    );
+  }
+
+  if (authRequired) {
+    return (
+      <main className="auth-required-page">
+        <section className="auth-required-panel" aria-labelledby="auth-required-title">
+          <div className="auth-required-icon" aria-hidden="true">
+            <AlertTriangle size={24} />
+          </div>
+          <div>
+            <span className="section-kicker">需要重新連線</span>
+            <h1 id="auth-required-title">Dashboard 登入連結已失效</h1>
+            <p>請回到 Telegram 對 MeetingFlow 輸入 <strong>/start</strong>，再點一次「開啟 Dashboard」。新的連結會自動恢復你的客戶資料與週進度。</p>
+          </div>
+          <button type="button" onClick={() => window.location.reload()}>
+            <RefreshCcw size={16} />
+            我已重新開啟，重新檢查
+          </button>
+        </section>
+      </main>
     );
   }
 

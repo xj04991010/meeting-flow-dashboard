@@ -21,6 +21,15 @@ export type ManualEntryInput = {
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:3000';
 const DEFAULT_DEV_USER_ID = '6578915a-d33e-4eed-8d22-a3e334480f56';
 
+export class DashboardAuthError extends Error {
+  readonly status = 401;
+
+  constructor() {
+    super('登入連結已失效，請回到 Telegram 重新開啟 MeetingFlow Dashboard。');
+    this.name = 'DashboardAuthError';
+  }
+}
+
 function getUrlParam(...names: string[]): string | null {
   if (typeof window === 'undefined') return null;
   const params = new URLSearchParams(window.location.search);
@@ -47,19 +56,25 @@ function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   };
-  
-  if (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.initData) {
-    headers['Authorization'] = `tma ${(window as any).Telegram.WebApp.initData}`;
+
+  const telegramWindow = typeof window !== 'undefined'
+    ? window as Window & { Telegram?: { WebApp?: { initData?: string } } }
+    : undefined;
+  const telegramInitData = telegramWindow?.Telegram?.WebApp?.initData;
+
+  if (telegramInitData) {
+    headers['Authorization'] = `tma ${telegramInitData}`;
   } else {
-    // Development fallback
     const userId = localStorage.getItem('dev_auth_token') || localStorage.getItem('MF_USER_ID') || DEFAULT_DEV_USER_ID;
     const dashboardToken = localStorage.getItem('MF_DASHBOARD_TOKEN');
 
     if (dashboardToken) {
       headers['Authorization'] = `dashboard ${dashboardToken}`;
       headers['X-Dashboard-User-Id'] = userId;
-    } else {
+    } else if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(BACKEND_URL)) {
       headers['Authorization'] = `tma ${userId}`;
+    } else {
+      throw new DashboardAuthError();
     }
   }
   return headers;
@@ -68,6 +83,10 @@ function getAuthHeaders(): Record<string, string> {
 async function throwApiError(response: Response, fallbackMessage: string): Promise<never> {
   const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
   const detail = body?.error || body?.message;
+  if (response.status === 401) {
+    if (typeof window !== 'undefined') window.localStorage.removeItem('MF_DASHBOARD_TOKEN');
+    throw new DashboardAuthError();
+  }
   throw new Error(detail ? `${fallbackMessage}: ${detail}` : `${fallbackMessage}: ${response.status}`);
 }
 
@@ -83,7 +102,7 @@ export async function fetchWeeklyDashboard(dateStr?: string): Promise<WeeklyDash
   const res = await fetch(url.toString(), {
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error(`API failed: ${res.status}`);
+  if (!res.ok) await throwApiError(res, '讀取儀表板失敗');
   return res.json();
 }
 
@@ -92,7 +111,7 @@ export async function fetchDocuments(): Promise<{ documents: any[] }> {
   const res = await fetch(`${BACKEND_URL}/api/documents`, {
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error(`API failed: ${res.status}`);
+  if (!res.ok) await throwApiError(res, '讀取文件失敗');
   return res.json();
 }
 
@@ -100,11 +119,12 @@ export async function fetchDocuments(): Promise<{ documents: any[] }> {
 
 /** 更新任務狀態（Kanban 用） */
 export async function updateTaskStatus(taskId: string, status: string): Promise<void> {
-  await fetch(`${BACKEND_URL}/api/tasks/${taskId}/status`, {
+  const res = await fetch(`${BACKEND_URL}/api/tasks/${taskId}/status`, {
     method: 'PATCH',
     headers: getAuthHeaders(),
     body: JSON.stringify({ status }),
   });
+  if (!res.ok) await throwApiError(res, '更新任務狀態失敗');
 }
 
 /** 編輯任務（title, client, owner, deadline, status, needs_review） */
@@ -114,7 +134,7 @@ export async function updateTask(taskId: string, data: Record<string, unknown>):
     headers: getAuthHeaders(),
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(`Task update failed: ${res.status}`);
+  if (!res.ok) await throwApiError(res, '更新任務失敗');
 }
 
 // ─── 行程操作 ───────────────────────────────
@@ -126,7 +146,7 @@ export async function updateCalendarIntent(intentId: string, data: Record<string
     headers: getAuthHeaders(),
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(`Event update failed: ${res.status}`);
+  if (!res.ok) await throwApiError(res, '更新行程失敗');
 }
 
 export async function updateCalendarIntentStatus(id: string, status: string, sync_status: string) {
@@ -135,7 +155,7 @@ export async function updateCalendarIntentStatus(id: string, status: string, syn
     headers: getAuthHeaders(),
     body: JSON.stringify({ status, sync_status })
   });
-  if (!res.ok) throw new Error('Failed to update event status');
+  if (!res.ok) await throwApiError(res, '更新行程狀態失敗');
 }
 
 
@@ -157,7 +177,7 @@ export async function getUserSettings() {
   const res = await fetch(`${BACKEND_URL}/api/user-settings`, {
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error('Failed to get user settings');
+  if (!res.ok) await throwApiError(res, '讀取設定失敗');
   return res.json();
 }
 
@@ -167,7 +187,7 @@ export async function saveUserSettings(settings: any) {
     headers: getAuthHeaders(),
     body: JSON.stringify(settings)
   });
-  if (!res.ok) throw new Error('Failed to save user settings');
+  if (!res.ok) await throwApiError(res, '儲存設定失敗');
   return res.json();
 }
 
@@ -238,7 +258,7 @@ export async function createClient(client: Omit<ClientRow, 'id' | 'user_id' | 'c
     headers: getAuthHeaders(),
     body: JSON.stringify(client),
   });
-  if (!res.ok) throw new Error(`Failed to create client: ${res.status}`);
+  if (!res.ok) await throwApiError(res, '新增客戶失敗');
   return res.json();
 }
 
@@ -249,7 +269,7 @@ export async function updateClient(clientId: string, data: Partial<ClientRow>): 
     headers: getAuthHeaders(),
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(`Failed to update client: ${res.status}`);
+  if (!res.ok) await throwApiError(res, '更新客戶失敗');
 }
 
 // ─── Google Calendar 同步 ────────────────────
@@ -258,7 +278,7 @@ export async function checkGoogleAuthStatus(): Promise<{ hasAuth: boolean }> {
   const res = await fetch(`${BACKEND_URL}/api/auth/google/status`, {
     headers: getAuthHeaders()
   });
-  if (!res.ok) throw new Error('Failed to check Google auth status');
+  if (!res.ok) await throwApiError(res, '檢查 Google Calendar 連線失敗');
   return res.json();
 }
 
