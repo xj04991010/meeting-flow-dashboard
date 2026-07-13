@@ -67,6 +67,7 @@ export type DateLinkData = {
   date: string;
   source?: string;
   field?: 'progress' | 'nextPush' | 'companyHelp';
+  start?: number;
 };
 
 export type ClientCalendarDateLink = DateLinkData & {

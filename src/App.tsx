@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Activity, AlertTriangle, Calendar, CalendarDays, LayoutDashboard, RefreshCcw, Settings } from 'lucide-react';
 import './App.css';
+import './meetingflow-v4.css';
 
 import type { CalendarIntentRow, ClientCalendarDateLink, ClientRow, TaskRow, UserRow } from './types';
 import {
