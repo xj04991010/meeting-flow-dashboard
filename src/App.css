@@ -2968,6 +2968,20 @@ button:not(.icon-button):not(.ghost):not(.tab-button):not(.check-btn):not(.icon-
   white-space: nowrap;
 }
 
+.inline-date-view-actions input[type="date"] {
+  min-height: 32px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-main);
+  font-size: 0.76rem;
+}
+
+.inline-date-view-actions .danger {
+  color: var(--danger);
+}
+
 .inline-date-popover {
   position: absolute;
   left: 10px;
@@ -4541,5 +4555,197 @@ body {
 
   .boss-report-actions {
     width: 100%;
+  }
+}
+
+/* Persistent secretary entry: keep AI reachable without occupying the board. */
+.ai-chat-panel,
+.week-focus-panel .ai-chat-panel {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  width: 176px;
+  display: grid;
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 14px 38px rgba(65, 59, 50, 0.16);
+}
+
+.dashboard-shell {
+  animation: none !important;
+  transform: none !important;
+}
+
+.view-switch {
+  min-height: 38px;
+  display: inline-grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-raised);
+}
+
+.view-switch button {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.view-switch button.is-active {
+  background: var(--surface);
+  color: var(--accent-strong);
+  box-shadow: var(--shadow-soft);
+}
+
+.month-pill.date-link {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.ai-chat-panel.open {
+  width: min(380px, calc(100vw - 28px));
+  gap: 10px;
+  padding: 10px;
+}
+
+.ai-chat-panel.open .ai-chat-body {
+  max-height: min(560px, 72vh);
+  overflow: hidden;
+}
+
+.ai-chat-panel.open .ai-chat-messages {
+  max-height: min(330px, 44vh);
+}
+
+.ai-chat-panel.collapsed .ai-chat-toggle {
+  border: 0;
+}
+
+.ai-chat-message.is-thinking {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.ai-chat-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.week-history button {
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.week-history button:hover,
+.week-history button.is-active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.week-history .history-safety-note {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--success);
+}
+
+@media (max-width: 560px) {
+  .ai-chat-panel,
+  .week-focus-panel .ai-chat-panel {
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .ai-chat-panel.open {
+    width: calc(100vw - 24px);
+  }
+
+  .view-switch {
+    width: 100%;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .month-calendar-panel {
+    overflow: hidden;
+    padding: 12px 8px;
+  }
+
+  .month-weekdays,
+  .month-grid {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .month-cell {
+    width: auto;
+    min-width: 0 !important;
+    min-height: 70px;
+    padding: 4px;
+    overflow: hidden;
+  }
+
+  .month-cell-day {
+    width: 28px;
+    min-height: 28px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-main);
+    font-size: 0.72rem;
+    cursor: pointer;
+  }
+
+  .month-cell-items {
+    min-height: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 3px;
+  }
+
+  .month-cell .month-pill {
+    width: 8px;
+    min-width: 8px;
+    height: 8px;
+    min-height: 8px;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 50%;
+    color: transparent;
+    font-size: 0;
+  }
+
+  .month-cell .month-more {
+    font-size: 0.58rem;
   }
 }

@@ -3,7 +3,7 @@ import { RichNoteEditor } from './RichNoteEditor';
 import { AlertTriangle, Building2, CalendarClock, CheckCircle2, ChevronDown, Clipboard, CloudOff, Download, Film, LayoutDashboard, Link2, LoaderCircle, MessageCircle, Plus, RefreshCw, ScrollText, Send, Sparkles } from 'lucide-react';
 import type { CalendarIntentRow, ClientRow, ClientWeeklyNoteRow, TaskRow } from '../types';
 import { formatDateOnly } from '../utils';
-import { batchSaveClientNotes, fetchClientNotes, saveClientNote } from '../api';
+import { askClientAssistant, batchSaveClientNotes, fetchClientNoteWeeks, fetchClientNotes, saveClientNote } from '../api';
 
 type WeeklyClientBoardProps = {
   tasks: TaskRow[];
@@ -14,6 +14,7 @@ type WeeklyClientBoardProps = {
   onEditEvent: (event: CalendarIntentRow) => void;
   onCreateTask: (clientName: string, taskType: string, title: string) => Promise<void>;
   onCreateClient: (name: string) => Promise<void>;
+  onSelectWeek: (weekKey: string) => void;
 };
 
 type ClientNote = {
@@ -148,6 +149,12 @@ function todayKey() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
 }
 
+let dateLinkSequence = 0;
+function createDateLinkId() {
+  dateLinkSequence += 1;
+  return `${Date.now()}-${dateLinkSequence}`;
+}
+
 function daysUntil(dateKey: string) {
   const today = new Date(`${todayKey()}T00:00:00+08:00`).getTime();
   const target = new Date(`${dateKey}T00:00:00+08:00`).getTime();
@@ -239,7 +246,7 @@ function renderLinkedNoteHtml(
   while (index < value.length) {
     const matched = fieldLinks.find((link) => value.startsWith(link.label, index));
     if (matched) {
-      html += `<span class="inline-date-link" contenteditable="false" role="button" tabindex="0" data-date="${escapeHtml(matched.date)}" data-label="${escapeHtml(matched.label)}" data-source="${escapeHtml(matched.source || '')}"><span class="inline-date-link-label">${escapeHtml(matched.label)}</span><span class="inline-date-link-date">${escapeHtml(matched.date.slice(5).replace('-', '/'))}</span></span>`;
+      html += `<span class="inline-date-link" contenteditable="false" role="button" tabindex="0" data-id="${escapeHtml(matched.id)}" data-date="${escapeHtml(matched.date)}" data-label="${escapeHtml(matched.label)}" data-source="${escapeHtml(matched.source || '')}"><span class="inline-date-link-label">${escapeHtml(matched.label)}</span><span class="inline-date-link-date">${escapeHtml(matched.date.slice(5).replace('-', '/'))}</span></span>`;
       index += matched.label.length;
       continue;
     }
@@ -267,6 +274,8 @@ type InlineDateNoteProps = {
   onCreateLinkForDate: (date: string) => void;
   onAddToChat: () => void;
   onAskAI: () => void;
+  onUpdateLink: (id: string, date: string) => void;
+  onRemoveLink: (id: string) => void;
   onInlineDateTrigger: (value: string, target: HTMLElement, selectedText?: string) => void;
 };
 
@@ -286,10 +295,12 @@ function InlineDateNote({
   onCreateLinkForDate,
   onAddToChat,
   onAskAI,
+  onUpdateLink,
+  onRemoveLink,
   onInlineDateTrigger,
 }: InlineDateNoteProps) {
   const isActiveDraft = draft?.clientName === clientName && draft.field === field;
-  const [viewLink, setViewLink] = useState<{ label: string; date: string; source?: string } | null>(null);
+  const [viewLink, setViewLink] = useState<{ id: string; label: string; date: string; source?: string } | null>(null);
   const plainTextRef = useRef(value);
   useEffect(() => {
     plainTextRef.current = value;
@@ -326,8 +337,23 @@ function InlineDateNote({
             <small>{viewLink.date}{viewLink.source ? ` · ${viewLink.source}` : ''}</small>
           </div>
           <div className="inline-date-view-actions">
+            <input
+              type="date"
+              value={viewLink.date}
+              onChange={(event) => setViewLink((current) => current ? { ...current, date: event.target.value } : current)}
+              aria-label="修改連結日期"
+            />
+            <button type="button" onClick={() => onUpdateLink(viewLink.id, viewLink.date)}>
+              儲存日期
+            </button>
             <button type="button" onClick={() => onOpenDate(viewLink.date)}>
               查看當日
+            </button>
+            <button type="button" className="ghost mini danger" onClick={() => {
+              onRemoveLink(viewLink.id);
+              setViewLink(null);
+            }}>
+              解除連結
             </button>
             <button type="button" className="ghost mini" onClick={() => setViewLink(null)}>
               關閉
@@ -468,6 +494,7 @@ export function WeeklyClientBoard({
   onEditEvent,
   onCreateTask,
   onCreateClient,
+  onSelectWeek,
 }: WeeklyClientBoardProps) {
   const weekKey = useMemo(() => getWeekStartKey(selectedDate), [selectedDate]);
   const rollingStartKey = useMemo(() => getRollingStartKey(selectedDate), [selectedDate]);
@@ -478,12 +505,20 @@ export function WeeklyClientBoard({
   const [syncState, setSyncState] = useState<SyncState>('loading');
   const [syncError, setSyncError] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyWeeks, setHistoryWeeks] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('MF_WEEKLY_CLIENT_NOTE_WEEKS') || '[]') as string[];
+    } catch {
+      return [];
+    }
+  });
   const [newDateLabel, setNewDateLabel] = useState<Record<string, string>>({});
   const [newDateValue, setNewDateValue] = useState<Record<string, string>>({});
   const [focusDate, setFocusDate] = useState(() => selectedDate || todayKey());
   const [selectionDraft, setSelectionDraft] = useState<SelectionDraft | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [aiChatOpen, setAiChatOpen] = useState(false);
+  const [chatPending, setChatPending] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportCopied, setReportCopied] = useState(false);
   const [reportExportDate, setReportExportDate] = useState(() => todayKey());
@@ -496,6 +531,8 @@ export function WeeklyClientBoard({
     },
   ]);
   const pendingDateTextRef = useRef<Record<string, string>>({});
+  const [currentWeekKey] = useState(() => getWeekStartKey());
+  const isHistoricalWeek = weekKey !== currentWeekKey;
 
   useEffect(() => {
     notesRef.current = notes;
@@ -541,13 +578,16 @@ export function WeeklyClientBoard({
 
   useEffect(() => {
     syncWeekRef.current = weekKey;
-    setSyncState('loading');
-    setSyncError('');
     let cancelled = false;
     const localNotes = loadNotesFromLocal(weekKey);
-    setNotes(localNotes);
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setSyncState('loading');
+      setSyncError('');
+      setNotes(localNotes);
+    });
 
-    fetchClientNotes(weekKey)
+    fetchClientNotes(weekKey, weekKey === currentWeekKey)
       .then((rows) => {
         if (cancelled) return;
         if (rows.length > 0) {
@@ -581,7 +621,15 @@ export function WeeklyClientBoard({
     return () => {
       cancelled = true;
     };
-  }, [weekKey]);
+  }, [currentWeekKey, weekKey]);
+
+  useEffect(() => {
+    fetchClientNoteWeeks()
+      .then((weeks) => setHistoryWeeks(weeks))
+      .catch(() => {
+        // Local history remains available while offline.
+      });
+  }, []);
 
   useEffect(() => () => {
     syncTimersRef.current.forEach((timer) => clearTimeout(timer));
@@ -589,14 +637,16 @@ export function WeeklyClientBoard({
   }, []);
 
   useEffect(() => {
-    if (selectedDate) {
-      setFocusDate(selectedDate);
-      return;
-    }
+    queueMicrotask(() => {
+      if (selectedDate) {
+        setFocusDate(selectedDate);
+        return;
+      }
 
-    const today = todayKey();
-    const isTodayInWeek = weekDays.some((day) => day.key === today);
-    setFocusDate(isTodayInWeek ? today : weekDays[0]?.key || today);
+      const today = todayKey();
+      const isTodayInWeek = weekDays.some((day) => day.key === today);
+      setFocusDate(isTodayInWeek ? today : weekDays[0]?.key || today);
+    });
   }, [selectedDate, weekDays]);
 
   const clientMap = useMemo(() => {
@@ -812,7 +862,7 @@ export function WeeklyClientBoard({
     recordReportExport('download');
   };
 
-  const buildAssistantReply = (prompt: string) => {
+  const buildAssistantFallback = (prompt: string) => {
     const alertClients = clients
       .map((client) => ({
         name: client.name,
@@ -837,16 +887,34 @@ export function WeeklyClientBoard({
     return '我先把這段當成追蹤線索。你可以框選重點接日期，或把客戶切成黃燈/紅燈，我就會在右側提醒你。';
   };
 
-  const sendChatMessage = (message?: string, meta?: string) => {
+  const sendChatMessage = async (message?: string, meta?: string) => {
     const text = (message || chatInput).trim();
-    if (!text) return;
+    if (!text || chatPending) return;
     const timestamp = Date.now();
     setChatMessages((current) => ([
       ...current,
       { id: `${timestamp}-user-${current.length}`, role: 'user', text, meta },
-      { id: `${timestamp}-assistant-${current.length}`, role: 'assistant', text: buildAssistantReply(text) },
     ]));
     if (!message) setChatInput('');
+    setChatPending(true);
+    try {
+      const answer = await askClientAssistant(text, weekKey);
+      setChatMessages((current) => ([
+        ...current,
+        { id: `${timestamp}-assistant-${current.length}`, role: 'assistant', text: answer },
+      ]));
+    } catch {
+      setChatMessages((current) => ([
+        ...current,
+        {
+          id: `${timestamp}-assistant-${current.length}`,
+          role: 'assistant',
+          text: `目前無法連到 AI。先依本機資料整理：${buildAssistantFallback(text)}`,
+        },
+      ]));
+    } finally {
+      setChatPending(false);
+    }
   };
 
   const sendSelectionToChat = (mode: 'add' | 'ask') => {
@@ -855,16 +923,8 @@ export function WeeklyClientBoard({
     const text = mode === 'add'
       ? `請幫我追這段：「${selectionDraft.text}」`
       : `請根據這段判斷下一步：「${selectionDraft.text}」`;
-    sendChatMessage(text, meta);
+    void sendChatMessage(text, meta);
   };
-
-  const historyWeeks = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem('MF_WEEKLY_CLIENT_NOTE_WEEKS') || '[]') as string[];
-    } catch {
-      return [];
-    }
-  }, [notes]);
 
   const updateNote = (clientName: string, patch: Partial<ClientNote>) => {
     const current = notesRef.current;
@@ -892,6 +952,7 @@ export function WeeklyClientBoard({
     notesRef.current = next;
     setNotes(next);
     saveNotesToLocal(weekKey, next);
+    setHistoryWeeks((weeks) => [weekKey, ...weeks.filter((item) => item !== weekKey)].slice(0, 24));
     syncNoteToBackend(clientName, nextNote);
   };
 
@@ -998,7 +1059,7 @@ export function WeeklyClientBoard({
       dateLinks: [
         ...(current.dateLinks || []),
         {
-          id: `${Date.now()}`,
+          id: createDateLinkId(),
           label,
           date,
           source: source || (activeSelection ? FIELD_LABELS[activeSelection.field] : '手動日期'),
@@ -1014,6 +1075,21 @@ export function WeeklyClientBoard({
     setNewDateLabel((value) => ({ ...value, [clientName]: '' }));
     setNewDateValue((value) => ({ ...value, [clientName]: '' }));
     if (activeSelection) setSelectionDraft(null);
+  };
+
+  const updateDateLink = (clientName: string, id: string, date: string) => {
+    if (!date) return;
+    const current = notes[clientName] || DEFAULT_NOTE;
+    updateNote(clientName, {
+      dateLinks: (current.dateLinks || []).map((link) => link.id === id ? { ...link, date } : link),
+    });
+  };
+
+  const removeDateLink = (clientName: string, id: string) => {
+    const current = notes[clientName] || DEFAULT_NOTE;
+    updateNote(clientName, {
+      dateLinks: (current.dateLinks || []).filter((link) => link.id !== id),
+    });
   };
 
   return (
@@ -1182,7 +1258,19 @@ export function WeeklyClientBoard({
           {historyWeeks.length === 0 ? (
             <span>尚無歷史週版本。修改便利貼後會自動保存。</span>
           ) : (
-            historyWeeks.map((week) => <span key={week}>{week}</span>)
+            historyWeeks.map((week) => (
+              <button
+                type="button"
+                className={week === weekKey ? 'is-active' : ''}
+                key={week}
+                onClick={() => onSelectWeek(week)}
+              >
+                {week}{week === currentWeekKey ? ' · 本週' : ''}
+              </button>
+            ))
+          )}
+          {isHistoricalWeek && (
+            <span className="history-safety-note">目前查看的是獨立週版本，不會覆蓋本週。</span>
           )}
         </div>
       )}
@@ -1259,6 +1347,8 @@ export function WeeklyClientBoard({
                         onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
                         onAddToChat={() => sendSelectionToChat('add')}
                         onAskAI={() => sendSelectionToChat('ask')}
+                        onUpdateLink={(id, date) => updateDateLink(client.name, id, date)}
+                        onRemoveLink={(id) => removeDateLink(client.name, id)}
                       />
                     </div>
                     <div className="note-block">
@@ -1280,6 +1370,8 @@ export function WeeklyClientBoard({
                         onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
                         onAddToChat={() => sendSelectionToChat('add')}
                         onAskAI={() => sendSelectionToChat('ask')}
+                        onUpdateLink={(id, date) => updateDateLink(client.name, id, date)}
+                        onRemoveLink={(id) => removeDateLink(client.name, id)}
                       />
                     </div>
                   </div>
@@ -1304,6 +1396,8 @@ export function WeeklyClientBoard({
                         onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
                         onAddToChat={() => sendSelectionToChat('add')}
                         onAskAI={() => sendSelectionToChat('ask')}
+                        onUpdateLink={(id, date) => updateDateLink(client.name, id, date)}
+                        onRemoveLink={(id) => removeDateLink(client.name, id)}
                       />
                     </div>
                   </details>
@@ -1411,6 +1505,8 @@ export function WeeklyClientBoard({
               })
             )}
           </div>
+        </aside>
+      </div>
 
           <div className={`ai-chat-panel ${aiChatOpen ? 'open' : 'collapsed'}`}>
             <button
@@ -1441,12 +1537,18 @@ export function WeeklyClientBoard({
                   <span>{message.text}</span>
                 </div>
               ))}
+              {chatPending && (
+                <div className="ai-chat-message assistant is-thinking">
+                  <LoaderCircle className="spin" size={14} />
+                  <span>正在讀取這週的客戶資料...</span>
+                </div>
+              )}
             </div>
             <form
               className="ai-chat-form"
               onSubmit={(event) => {
                 event.preventDefault();
-                sendChatMessage();
+                void sendChatMessage();
               }}
             >
               <input
@@ -1455,15 +1557,13 @@ export function WeeklyClientBoard({
                 placeholder="問 AI：這週誰需要追？"
                 aria-label="問 AI"
               />
-              <button type="submit" aria-label="送出問題">
-                <Send size={15} />
+              <button type="submit" aria-label="送出問題" disabled={chatPending || !chatInput.trim()}>
+                {chatPending ? <LoaderCircle className="spin" size={15} /> : <Send size={15} />}
               </button>
             </form>
               </div>
             )}
           </div>
-        </aside>
-      </div>
     </section>
   );
 }

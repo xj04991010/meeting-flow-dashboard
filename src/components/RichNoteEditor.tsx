@@ -15,6 +15,7 @@ const InlineDateLinkNode = Node.create({
 
   addAttributes() {
     return {
+      id: { default: null },
       date: { default: null },
       label: { default: null },
       source: { default: null },
@@ -28,6 +29,7 @@ const InlineDateLinkNode = Node.create({
         getAttrs: (element) => {
           if (typeof element === 'string') return {};
           return {
+            id: element.getAttribute('data-id'),
             date: element.getAttribute('data-date'),
             label: element.getAttribute('data-label'),
             source: element.getAttribute('data-source'),
@@ -42,6 +44,7 @@ const InlineDateLinkNode = Node.create({
       'span',
       mergeAttributes(HTMLAttributes, {
         class: 'inline-date-link',
+        'data-id': HTMLAttributes.id,
         'data-date': HTMLAttributes.date,
         'data-label': HTMLAttributes.label,
         'data-source': HTMLAttributes.source,
@@ -60,7 +63,7 @@ export type RichNoteEditorProps = {
   onFocus?: () => void;
   onBlur?: () => void;
   onSelectionChange?: (target: HTMLElement) => void;
-  onInlineDateClick?: (link: { label: string; date: string; source?: string }) => void;
+  onInlineDateClick?: (link: { id: string; label: string; date: string; source?: string }) => void;
   onAtSignTrigger?: (currentHtml: string, target: HTMLElement, selectedText?: string) => void;
   className?: string;
 };
@@ -76,6 +79,7 @@ function getEditorPlainText(target: HTMLElement) {
 function getContentSignature(target: HTMLElement) {
   const clone = target.cloneNode(true) as HTMLElement;
   const links = Array.from(clone.querySelectorAll<HTMLElement>('.inline-date-link')).map((link) => ({
+    id: link.dataset.id || '',
     date: link.dataset.date || '',
     label: link.dataset.label || '',
     source: link.dataset.source || '',
@@ -173,6 +177,7 @@ export function RichNoteEditor({
         const handleClick = callbacksRef.current.onInlineDateClick;
         if (!target || !handleClick) return false;
         handleClick({
+          id: target.dataset.id || '',
           label: target.dataset.label || '',
           date: target.dataset.date || '',
           source: target.dataset.source || undefined,

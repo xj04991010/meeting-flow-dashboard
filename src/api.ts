@@ -7,7 +7,7 @@
  * ✅ 所有元件必須透過此檔案的函式存取後端
  */
 
-import type { WeeklyDashboardResponse, ClientWeeklyNoteRow, ClientRow } from './types';
+import type { WeeklyDashboardResponse, ClientWeeklyNoteRow, ClientRow, DocumentRow, ClientCalendarDateLink } from './types';
 
 
 
@@ -107,7 +107,7 @@ export async function fetchWeeklyDashboard(dateStr?: string): Promise<WeeklyDash
 }
 
 /** 取得深度研究報告列表 */
-export async function fetchDocuments(): Promise<{ documents: any[] }> {
+export async function fetchDocuments(): Promise<{ documents: DocumentRow[] }> {
   const res = await fetch(`${BACKEND_URL}/api/documents`, {
     headers: getAuthHeaders()
   });
@@ -181,7 +181,7 @@ export async function getUserSettings() {
   return res.json();
 }
 
-export async function saveUserSettings(settings: any) {
+export async function saveUserSettings(settings: Record<string, unknown>) {
   const res = await fetch(`${BACKEND_URL}/api/user-settings`, {
     method: 'PATCH',
     headers: getAuthHeaders(),
@@ -199,15 +199,46 @@ export async function confirmCalendarIntent(intentId: string): Promise<void> {
 // ─── 業主筆記（Client Weekly Notes） ──────────
 
 /** 取得某週所有業主筆記 */
-export async function fetchClientNotes(weekKey: string): Promise<ClientWeeklyNoteRow[]> {
+export async function fetchClientNotes(weekKey: string, inherit = true): Promise<ClientWeeklyNoteRow[]> {
   const url = new URL(`${BACKEND_URL}/api/client-notes`);
   url.searchParams.append('week_key', weekKey);
+  url.searchParams.append('inherit', inherit ? 'true' : 'false');
   const res = await fetch(url.toString(), { headers: getAuthHeaders() });
   if (!res.ok) {
     await throwApiError(res, 'Failed to fetch client notes');
   }
   const data = await res.json();
   return data.notes || data || [];
+}
+
+export async function fetchClientNoteWeeks(): Promise<string[]> {
+  const res = await fetch(`${BACKEND_URL}/api/client-note-weeks`, {
+    headers: getAuthHeaders(),
+  });
+  if (!res.ok) await throwApiError(res, '讀取週版本失敗');
+  const data = await res.json() as { weeks?: string[] };
+  return data.weeks || [];
+}
+
+export async function fetchClientDateLinks(month: string): Promise<ClientCalendarDateLink[]> {
+  const url = new URL(`${BACKEND_URL}/api/client-date-links`);
+  url.searchParams.set('month', month);
+  const res = await fetch(url.toString(), { headers: getAuthHeaders() });
+  if (!res.ok) await throwApiError(res, '讀取月曆日期連結失敗');
+  const data = await res.json() as { links?: ClientCalendarDateLink[] };
+  return data.links || [];
+}
+
+export async function askClientAssistant(message: string, weekKey: string): Promise<string> {
+  const res = await fetch(`${BACKEND_URL}/api/client-assistant`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ message, week_key: weekKey }),
+  });
+  if (!res.ok) await throwApiError(res, 'AI 助理暫時無法回答');
+  const data = await res.json() as { answer?: string };
+  if (!data.answer) throw new Error('AI 助理沒有回傳內容');
+  return data.answer;
 }
 
 /** 儲存單一業主的週筆記（upsert） */

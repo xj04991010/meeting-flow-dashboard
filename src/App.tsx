@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, AlertTriangle, Calendar, LayoutDashboard, RefreshCcw, Settings } from 'lucide-react';
+import { Activity, AlertTriangle, Calendar, CalendarDays, LayoutDashboard, RefreshCcw, Settings } from 'lucide-react';
 import './App.css';
 
-import type { CalendarIntentRow, TaskRow, UserRow } from './types';
+import type { CalendarIntentRow, ClientCalendarDateLink, ClientRow, TaskRow, UserRow } from './types';
 import {
   fetchWeeklyDashboard,
   getGoogleAuthUrl,
@@ -11,12 +11,15 @@ import {
   createManualEntry,
   fetchClients,
   createClient,
-  DashboardAuthError
+  DashboardAuthError,
+  fetchClientDateLinks,
 } from './api';
 
 import { EditModal } from './components/EditModal';
-import { SettingsModal, TAIWAN_CITIES } from './components/SettingsModal';
+import { SettingsModal } from './components/SettingsModal';
 import { WeeklyClientBoard } from './components/WeeklyClientBoard';
+import { MonthCalendar } from './components/MonthCalendar';
+import { TAIWAN_CITIES } from './taiwanCities';
 
 const WEATHER_LABELS: Record<number, string> = {
   0: '晴',
@@ -51,7 +54,7 @@ const WEATHER_LABELS: Record<number, string> = {
 
 function App() {
   const [user, setUser] = useState<UserRow | null>(null);
-  const [clients, setClients] = useState<any[]>([]);
+  const [clients, setClients] = useState<ClientRow[]>([]);
   const [allTasks, setAllTasks] = useState<TaskRow[]>([]);
   const [allEvents, setAllEvents] = useState<CalendarIntentRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +67,8 @@ function App() {
   const [selectedDate, setSelectedDate] = useState('');
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
+  const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
+  const [calendarDateLinks, setCalendarDateLinks] = useState<ClientCalendarDateLink[]>([]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -95,7 +100,7 @@ function App() {
     }
   }, [selectedDate]);
 
-  const fetchWeather = async (forceCity?: string) => {
+  const fetchWeather = useCallback(async (forceCity?: string) => {
     const targetCity = forceCity || preferredCity;
     const todayStr = new Date().toLocaleString('en-CA', {
       timeZone: 'Asia/Taipei',
@@ -164,14 +169,37 @@ function App() {
         void getWeather(25.0478, 121.5319);
       },
     );
-  };
+  }, [preferredCity]);
 
   useEffect(() => {
-    void fetchData();
-    void fetchWeather();
+    const initialLoadId = window.setTimeout(() => {
+      void fetchData();
+      void fetchWeather();
+    }, 0);
     const intervalId = window.setInterval(fetchData, 60_000);
-    return () => window.clearInterval(intervalId);
-  }, [fetchData]);
+    return () => {
+      window.clearTimeout(initialLoadId);
+      window.clearInterval(intervalId);
+    };
+  }, [fetchData, fetchWeather]);
+
+  useEffect(() => {
+    if (viewMode !== 'month') return;
+    const month = selectedDate
+      ? selectedDate.slice(0, 7)
+      : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' }).slice(0, 7);
+    let cancelled = false;
+    fetchClientDateLinks(month)
+      .then((links) => {
+        if (!cancelled) setCalendarDateLinks(links);
+      })
+      .catch(() => {
+        if (!cancelled) setCalendarDateLinks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate, viewMode]);
 
   const handleSaveSettings = (city: string, aiSettings: { provider: string; model: string; apiKey: string }) => {
     void aiSettings;
@@ -267,6 +295,14 @@ function App() {
         </div>
 
         <div className="header-actions">
+          <div className="view-switch" role="tablist" aria-label="日曆檢視">
+            <button type="button" className={viewMode === 'week' ? 'is-active' : ''} onClick={() => setViewMode('week')}>
+              <LayoutDashboard size={15} />週控
+            </button>
+            <button type="button" className={viewMode === 'month' ? 'is-active' : ''} onClick={() => setViewMode('month')}>
+              <CalendarDays size={15} />月曆
+            </button>
+          </div>
           {selectedDate && (
             <button className="ghost subtle" onClick={() => setSelectedDate('')}>
               回到本週
@@ -313,8 +349,8 @@ function App() {
         </div>
       )}
 
-      <section className="calendar-priority" aria-label="週曆主工作區">
-        <WeeklyClientBoard
+      <section className="calendar-priority" aria-label={viewMode === 'week' ? '週曆主工作區' : '月曆主工作區'}>
+        {viewMode === 'week' ? <WeeklyClientBoard
           tasks={allTasks}
           events={allEvents}
           clients={clients}
@@ -323,7 +359,19 @@ function App() {
           onEditEvent={(event) => setEditing({ type: 'event', item: event })}
           onCreateTask={handleCreateTask}
           onCreateClient={handleCreateClient}
-        />
+          onSelectWeek={setSelectedDate}
+        /> : <MonthCalendar
+          tasks={allTasks}
+          events={allEvents}
+          dateLinks={calendarDateLinks}
+          selectedDate={selectedDate}
+          onEditTask={(task) => setEditing({ type: 'task', item: task })}
+          onEditEvent={(event) => setEditing({ type: 'event', item: event })}
+          onOpenDate={(date) => {
+            setSelectedDate(date);
+            setViewMode('week');
+          }}
+        />}
       </section>
 
       {editing && (

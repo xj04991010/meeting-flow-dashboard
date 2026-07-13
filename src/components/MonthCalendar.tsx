@@ -1,13 +1,15 @@
 import { memo, useMemo } from 'react';
 import { CalendarDays } from 'lucide-react';
-import type { CalendarIntentRow, TaskRow } from '../types';
+import type { CalendarIntentRow, ClientCalendarDateLink, TaskRow } from '../types';
 
 type MonthCalendarProps = {
   tasks: TaskRow[];
   events: CalendarIntentRow[];
+  dateLinks: ClientCalendarDateLink[];
   selectedDate: string;
   onEditTask: (task: TaskRow) => void;
   onEditEvent: (event: CalendarIntentRow) => void;
+  onOpenDate: (date: string) => void;
 };
 
 function toDateKey(value?: string | null) {
@@ -20,14 +22,19 @@ function toDateKey(value?: string | null) {
 export const MonthCalendar = memo(function MonthCalendar({
   tasks,
   events,
+  dateLinks,
   selectedDate,
   onEditTask,
   onEditEvent,
+  onOpenDate,
 }: MonthCalendarProps) {
-  const monthBase = selectedDate ? new Date(selectedDate) : new Date();
-  const monthStart = new Date(monthBase.getFullYear(), monthBase.getMonth(), 1);
-  const gridStart = new Date(monthStart);
-  gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+  const monthBase = useMemo(() => selectedDate ? new Date(selectedDate) : new Date(), [selectedDate]);
+  const gridStart = useMemo(() => {
+    const monthStart = new Date(monthBase.getFullYear(), monthBase.getMonth(), 1);
+    const start = new Date(monthStart);
+    start.setDate(monthStart.getDate() - monthStart.getDay());
+    return start;
+  }, [monthBase]);
 
   const cells = useMemo(() => {
     return Array.from({ length: 42 }, (_, index) => {
@@ -40,9 +47,10 @@ export const MonthCalendar = memo(function MonthCalendar({
         inMonth: date.getMonth() === monthBase.getMonth(),
         tasks: tasks.filter((task) => task.status !== 'cancelled' && toDateKey(task.deadline) === key),
         events: events.filter((event) => event.status !== 'cancelled' && toDateKey(event.start_time) === key),
+        dateLinks: dateLinks.filter((link) => link.date === key),
       };
     });
-  }, [events, gridStart, monthBase, tasks]);
+  }, [dateLinks, events, gridStart, monthBase, tasks]);
 
   return (
     <section className="panel month-calendar-panel">
@@ -60,7 +68,14 @@ export const MonthCalendar = memo(function MonthCalendar({
       <div className="month-grid">
         {cells.map((cell) => (
           <div key={cell.key} className={`month-cell ${cell.inMonth ? '' : 'muted'}`}>
-            <div className="month-cell-day">{cell.day}</div>
+            <button
+              type="button"
+              className="month-cell-day"
+              onClick={() => onOpenDate(cell.key)}
+              aria-label={`查看 ${cell.key}`}
+            >
+              {cell.day}
+            </button>
             <div className="month-cell-items">
               {cell.tasks.slice(0, 3).map((task) => (
                 <button key={task.id} className="month-pill task" onClick={() => onEditTask(task)}>
@@ -72,8 +87,13 @@ export const MonthCalendar = memo(function MonthCalendar({
                   {event.client || '行程'} · {event.title}
                 </button>
               ))}
-              {cell.tasks.length + cell.events.length > 5 && (
-                <span className="month-more">+{cell.tasks.length + cell.events.length - 5}</span>
+              {cell.dateLinks.slice(0, 3).map((link) => (
+                <button key={`${link.client_name}-${link.id}`} className="month-pill date-link" onClick={() => onOpenDate(link.date)}>
+                  {link.client_name} · {link.label}
+                </button>
+              ))}
+              {cell.tasks.length + cell.events.length + cell.dateLinks.length > 8 && (
+                <span className="month-more">+{cell.tasks.length + cell.events.length + cell.dateLinks.length - 8}</span>
               )}
             </div>
           </div>

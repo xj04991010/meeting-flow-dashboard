@@ -2,30 +2,7 @@ import { useState } from 'react';
 import { Calendar, CheckCircle2, Cpu, KeyRound, Save, X } from 'lucide-react';
 import { getGoogleAuthUrl } from '../api';
 import type { UserRow } from '../types';
-
-export const TAIWAN_CITIES = [
-  { name: '自動定位', lat: 25.0478, lon: 121.5319 },
-  { name: '台北市', lat: 25.0478, lon: 121.5319 },
-  { name: '新北市', lat: 25.0112, lon: 121.4617 },
-  { name: '桃園市', lat: 24.9936, lon: 121.3010 },
-  { name: '台中市', lat: 24.1477, lon: 120.6736 },
-  { name: '台南市', lat: 22.9999, lon: 120.2269 },
-  { name: '高雄市', lat: 22.6273, lon: 120.3014 },
-  { name: '基隆市', lat: 25.1276, lon: 121.7392 },
-  { name: '新竹市', lat: 24.8138, lon: 120.9675 },
-  { name: '苗栗縣', lat: 24.5602, lon: 120.8214 },
-  { name: '彰化縣', lat: 24.0518, lon: 120.5393 },
-  { name: '南投縣', lat: 23.9037, lon: 120.6798 },
-  { name: '雲林縣', lat: 23.7093, lon: 120.4313 },
-  { name: '嘉義市', lat: 23.4801, lon: 120.4491 },
-  { name: '屏東縣', lat: 22.6700, lon: 120.4851 },
-  { name: '宜蘭縣', lat: 24.7303, lon: 121.7645 },
-  { name: '花蓮縣', lat: 23.9872, lon: 121.6016 },
-  { name: '台東縣', lat: 22.7583, lon: 121.1444 },
-  { name: '澎湖縣', lat: 23.5711, lon: 119.5793 },
-  { name: '金門縣', lat: 24.4327, lon: 118.3125 },
-  { name: '連江縣', lat: 26.1505, lon: 119.9334 },
-];
+import { TAIWAN_CITIES } from '../taiwanCities';
 
 type AiSettings = {
   provider: string;

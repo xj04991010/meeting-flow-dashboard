@@ -69,6 +69,10 @@ export type DateLinkData = {
   field?: 'progress' | 'nextPush' | 'companyHelp';
 };
 
+export type ClientCalendarDateLink = DateLinkData & {
+  client_name: string;
+};
+
 export type ClientRow = {
   id: string;
   user_id?: string;
