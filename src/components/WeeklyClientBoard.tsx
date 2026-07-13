@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RichNoteEditor, type RichNoteSelection } from './RichNoteEditor';
-import { AlertTriangle, Building2, CalendarClock, CheckCircle2, ChevronDown, Clipboard, CloudOff, Download, Film, LayoutDashboard, Link2, LoaderCircle, MessageCircle, Plus, RefreshCw, ScrollText, Send, Sparkles } from 'lucide-react';
+import { Building2, CalendarClock, CheckCircle2, ChevronDown, Clipboard, CloudOff, Download, Film, LayoutDashboard, Link2, LoaderCircle, MessageCircle, Plus, RefreshCw, ScrollText, Send, Sparkles } from 'lucide-react';
 import type { CalendarIntentRow, ClientRow, ClientWeeklyNoteRow, TaskRow } from '../types';
 import { formatDateOnly } from '../utils';
 import { askClientAssistant, batchSaveClientNotes, fetchClientNoteWeeks, fetchClientNotes, saveClientNote } from '../api';
@@ -12,15 +12,16 @@ type WeeklyClientBoardProps = {
   selectedDate?: string;
   onEditTask: (task: TaskRow) => void;
   onEditEvent: (event: CalendarIntentRow) => void;
-  onCreateTask: (clientName: string, taskType: string, title: string) => Promise<void>;
   onCreateClient: (name: string) => Promise<void>;
   onSelectWeek: (weekKey: string) => void;
 };
 
 type ClientNote = {
   trafficLight: TrafficLight;
+  currentStatus: string;
   progress: string;
   nextPush: string;
+  shootingNote: string;
   companyHelp: string;
   footage: string;
   finished: string;
@@ -46,7 +47,7 @@ type CalendarItem = {
   source?: string;
 };
 
-type TextFieldKey = 'progress' | 'nextPush' | 'companyHelp';
+type TextFieldKey = 'currentStatus' | 'progress' | 'nextPush' | 'shootingNote' | 'companyHelp';
 type TrafficLight = 'green' | 'yellow' | 'red';
 type SyncState = 'loading' | 'saving' | 'saved' | 'local-only';
 
@@ -73,10 +74,15 @@ type BossReportExportRecord = {
 };
 
 const FIELD_LABELS: Record<TextFieldKey, string> = {
+  currentStatus: '目前狀態',
   progress: '本週進度',
-  nextPush: '下週進度',
-  companyHelp: '緊急事項或協辦',
+  nextPush: '下週推進',
+  shootingNote: '待拍攝內容',
+  companyHelp: '需公司判斷或協辦',
 };
+
+const SHOOTING_SECTION = '【待拍攝內容】';
+const COMPANY_HELP_SECTION = '【需公司判斷／緊急協辦】';
 
 const TRAFFIC_LIGHTS: Record<TrafficLight, { label: string; short: string; description: string }> = {
   green: {
@@ -100,8 +106,10 @@ const TRAFFIC_ORDER: TrafficLight[] = ['green', 'yellow', 'red'];
 
 const DEFAULT_NOTE: ClientNote = {
   trafficLight: 'green',
+  currentStatus: '',
   progress: '',
   nextPush: '',
+  shootingNote: '',
   companyHelp: '',
   footage: '',
   finished: '',
@@ -225,6 +233,81 @@ function normalizeLegacyNoteText(value: string) {
   }
 
   return current.replace(/\u00a0/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function parseSupplementNote(value?: string | null) {
+  const normalized = normalizeLegacyNoteText(value || '');
+  if (!normalized.includes(SHOOTING_SECTION) && !normalized.includes(COMPANY_HELP_SECTION)) {
+    return { shootingNote: '', companyHelp: normalized };
+  }
+
+  const shootingStart = normalized.indexOf(SHOOTING_SECTION);
+  const companyStart = normalized.indexOf(COMPANY_HELP_SECTION);
+  const shootingNote = shootingStart >= 0
+    ? normalized.slice(
+      shootingStart + SHOOTING_SECTION.length,
+      companyStart > shootingStart ? companyStart : undefined,
+    ).trim()
+    : '';
+  const companyHelp = companyStart >= 0
+    ? normalized.slice(
+      companyStart + COMPANY_HELP_SECTION.length,
+      shootingStart > companyStart ? shootingStart : undefined,
+    ).trim()
+    : '';
+  return { shootingNote, companyHelp };
+}
+
+function serializeSupplementNote(shootingNote: string, companyHelp: string) {
+  return [
+    shootingNote.trim() ? `${SHOOTING_SECTION}\n${shootingNote.trim()}` : '',
+    companyHelp.trim() ? `${COMPANY_HELP_SECTION}\n${companyHelp.trim()}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+function formatReportNote(value: string, links: ClientNote['dateLinks'], field: TextFieldKey) {
+  const text = normalizeLegacyNoteText(value || '').trim();
+  if (!text) return '';
+  const occupied: Array<{ start: number; end: number }> = [];
+  const placements = (links || [])
+    .filter((link) => (
+      link.label.trim()
+      && (
+        link.field === field
+        || link.source === FIELD_LABELS[field]
+        || (!link.field && text.includes(link.label))
+      )
+    ))
+    .flatMap((link) => {
+      const candidates: number[] = [];
+      let searchFrom = 0;
+      while (searchFrom <= text.length - link.label.length) {
+        const found = text.indexOf(link.label, searchFrom);
+        if (found < 0) break;
+        candidates.push(found);
+        searchFrom = found + Math.max(1, link.label.length);
+      }
+      const preferred = typeof link.start === 'number' ? link.start : undefined;
+      candidates.sort((a, b) => (
+        preferred === undefined ? a - b : Math.abs(a - preferred) - Math.abs(b - preferred)
+      ));
+      const start = candidates.find((candidate) => !occupied.some((range) => (
+        candidate < range.end && candidate + link.label.length > range.start
+      )));
+      if (start === undefined) return [];
+      occupied.push({ start, end: start + link.label.length });
+      return [{ ...link, start }];
+    })
+    .sort((a, b) => b.start - a.start);
+
+  let result = text;
+  for (const link of placements) {
+    const end = link.start + link.label.length;
+    const suffix = `（${formatReportDate(link.date)}）`;
+    if (result.slice(end, end + suffix.length) === suffix) continue;
+    result = `${result.slice(0, end)}${suffix}${result.slice(end)}`;
+  }
+  return result;
 }
 
 function renderLinkedNoteHtml(
@@ -422,10 +505,18 @@ function loadNotesFromLocal(weekKey: string): Record<string, ClientNote> {
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Record<string, ClientNote>;
     const normalized = Object.fromEntries(Object.entries(parsed).map(([clientName, note]) => {
+      const currentStatus = normalizeLegacyNoteText(note.currentStatus || '');
       const progress = normalizeLegacyNoteText(note.progress || '');
       const nextPush = normalizeLegacyNoteText(note.nextPush || '');
+      const shootingNote = normalizeLegacyNoteText(note.shootingNote || '');
       const companyHelp = normalizeLegacyNoteText(note.companyHelp || '');
-      const fieldText: Record<TextFieldKey, string> = { progress, nextPush, companyHelp };
+      const fieldText: Record<TextFieldKey, string> = {
+        currentStatus,
+        progress,
+        nextPush,
+        shootingNote,
+        companyHelp,
+      };
       const dateLinks = (note.dateLinks || []).filter((link) => {
         if (!link.label?.trim()) return false;
         if (link.field) return fieldText[link.field]?.includes(link.label);
@@ -435,8 +526,10 @@ function loadNotesFromLocal(weekKey: string): Record<string, ClientNote> {
       clientName,
       {
         ...note,
+        currentStatus,
         progress,
         nextPush,
+        shootingNote,
         companyHelp,
         dateLinks,
       },
@@ -461,11 +554,14 @@ function saveNotesToLocal(weekKey: string, notes: Record<string, ClientNote>) {
 }
 
 function mapRowToNote(row: ClientWeeklyNoteRow): ClientNote {
+  const supplement = parseSupplementNote(row.urgent_note);
   return {
     trafficLight: row.traffic_light as TrafficLight,
+    currentStatus: normalizeLegacyNoteText(row.current_status || ''),
     progress: normalizeLegacyNoteText(row.progress_note || ''),
     nextPush: normalizeLegacyNoteText(row.next_week_note || ''),
-    companyHelp: normalizeLegacyNoteText(row.urgent_note || ''),
+    shootingNote: supplement.shootingNote,
+    companyHelp: supplement.companyHelp,
     footage: String(row.raw_count || 0),
     finished: String(row.edited_count || 0),
     editing: String(row.scheduled_count || 0),
@@ -492,9 +588,9 @@ function mapNoteToPayload(clientName: string, weekKey: string, note: ClientNote)
     scheduled_count: toCount(note.editing),
     unshot_count: toCount(note.planning),
     progress_note: note.progress || '',
-    current_status: '',
+    current_status: note.currentStatus || '',
     next_week_note: note.nextPush || '',
-    urgent_note: note.companyHelp || '',
+    urgent_note: serializeSupplementNote(note.shootingNote || '', note.companyHelp || ''),
     date_links: (note.dateLinks || []).map((dl) => ({
       id: dl.id,
       label: dl.label,
@@ -513,7 +609,6 @@ export function WeeklyClientBoard({
   selectedDate,
   onEditTask,
   onEditEvent,
-  onCreateTask,
   onCreateClient,
   onSelectWeek,
 }: WeeklyClientBoardProps) {
@@ -779,38 +874,35 @@ export function WeeklyClientBoard({
   ), [calendarItems]);
 
   const weeklyBossReport = useMemo(() => {
-    const clientNames = clients.map((client) => client.name).join('、');
     const reportDate = formatReportDate(reportExportDate);
-    const clientBlocks = clients.map((client) => {
+    const reportClients = clients.filter((client) => {
+      const note = notes[client.name] || DEFAULT_NOTE;
+      return [note.currentStatus, note.progress, note.nextPush, note.shootingNote, note.companyHelp]
+        .some((value) => cleanReportText(value));
+    });
+    const clientNames = reportClients.map((client) => client.name).join('、');
+    const clientBlocks = reportClients.map((client) => {
       const note = notes[client.name] || DEFAULT_NOTE;
       const traffic = note.trafficLight || 'green';
-      const linkedDates = (note.dateLinks || [])
-        .map((link) => `${formatReportDate(link.date)} ${link.label}`)
-        .join('、');
-      const statusParts = [
-        toCount(note.footage) ? `毛片 ${toCount(note.footage)}` : '',
-        toCount(note.finished) ? `成片 ${toCount(note.finished)}` : '',
-        toCount(note.editing) ? `已排程 ${toCount(note.editing)}` : '',
-        toCount(note.planning) ? `本月未拍 ${toCount(note.planning)}` : '',
-      ].filter(Boolean);
-      const status = [
-        statusParts.length > 0 ? statusParts.join('，') : '依本週紀錄追蹤中',
-        linkedDates ? `相關日期：${linkedDates}` : '',
-      ].filter(Boolean).join('。');
-
-      const lines = [
-        `【${client.name}】`,
-        `目前狀態：${status}。`,
-        `本週進度：${cleanReportText(note.progress) || '本週尚未補充進度。'}`,
-        `下週推進：${cleanReportText(note.nextPush) || '下週推進事項待確認。'}`,
+      const lines = [`【${client.name}】`];
+      const reportFields: Array<[string, TextFieldKey, string]> = [
+        ['目前狀態', 'currentStatus', note.currentStatus],
+        ['本週進度', 'progress', note.progress],
+        ['下週推進', 'nextPush', note.nextPush],
+        ['待拍攝內容', 'shootingNote', note.shootingNote],
       ];
+      reportFields.forEach(([label, field, value]) => {
+        const formatted = formatReportNote(value, note.dateLinks, field);
+        if (formatted) lines.push(`${label}：${formatted}`);
+      });
 
       if (traffic !== 'green') {
         lines.push(
-          `需公司判斷：此案目前屬於${TRAFFIC_LIGHTS[traffic].label}，${cleanReportText(note.companyHelp) || TRAFFIC_LIGHTS[traffic].description}`,
+          `需公司判斷：此案目前屬於${TRAFFIC_LIGHTS[traffic].label}，${formatReportNote(note.companyHelp, note.dateLinks, 'companyHelp') || TRAFFIC_LIGHTS[traffic].description}`,
         );
-      } else if (cleanReportText(note.companyHelp)) {
-        lines.push(`需公司協助：${cleanReportText(note.companyHelp)}`);
+      } else {
+        const companyHelp = formatReportNote(note.companyHelp, note.dateLinks, 'companyHelp');
+        if (companyHelp) lines.push(`需公司協助：${companyHelp}`);
       }
 
       return lines.join('\n');
@@ -820,7 +912,7 @@ export function WeeklyClientBoard({
       `這是 ${reportDate} 給老闆的 IP 進度通知。`,
       `匯出日：${reportExportDate}`,
       '',
-      `這份通知會整理目前所有 IP 的進度，包含目前手上的客戶：${clientNames || '尚未建立客戶'}。`,
+      `這份通知會整理目前所有 IP 的進度，包含目前手上的客戶：${clientNames || '本週尚無更新'}。`,
       '',
       '內容會包含：',
       '',
@@ -1031,26 +1123,29 @@ export function WeeklyClientBoard({
       occupied.push({ start, end: start + link.label.length });
       return [{ ...link, start }];
     });
-    if (field === 'progress') {
-      updateNote(clientName, { progress: value, dateLinks });
-      return;
-    }
-    if (field === 'nextPush') {
-      updateNote(clientName, { nextPush: value, dateLinks });
-      return;
-    }
-    updateNote(clientName, { companyHelp: value, dateLinks });
+    const fieldPatch: Record<TextFieldKey, Partial<ClientNote>> = {
+      currentStatus: { currentStatus: value },
+      progress: { progress: value },
+      nextPush: { nextPush: value },
+      shootingNote: { shootingNote: value },
+      companyHelp: { companyHelp: value },
+    };
+    updateNote(clientName, { ...fieldPatch[field], dateLinks });
   };
 
   const getNoteText = (note: ClientNote, field: TextFieldKey) => {
+    if (field === 'currentStatus') return note.currentStatus;
     if (field === 'progress') return note.progress;
     if (field === 'nextPush') return note.nextPush;
+    if (field === 'shootingNote') return note.shootingNote;
     return note.companyHelp;
   };
 
   const getNotePlaceholder = (field: TextFieldKey) => {
+    if (field === 'currentStatus') return '例如：執行中、被動等待中，或目前可發至哪一天…';
     if (field === 'progress') return '記下本週完成內容、客戶回覆或卡點…';
     if (field === 'nextPush') return '記下下週要推進的拍攝、交付或確認事項…';
+    if (field === 'shootingNote') return '逐行記下待拍攝主題、口播或腳本內容…';
     return '需要立即處理、公司協助或主管判斷的內容…';
   };
 
@@ -1288,7 +1383,7 @@ export function WeeklyClientBoard({
             const trafficLight = note.trafficLight || 'green';
             const traffic = TRAFFIC_LIGHTS[trafficLight];
             const isExpanded = expandedClient === client.name;
-            const progressPreview = cleanReportText(note.progress) || '尚未更新本週進度';
+            const statusPreview = cleanReportText(note.currentStatus) || '尚未更新目前狀態';
             const nextPreview = cleanReportText(note.nextPush) || '尚未安排下週推進';
             return (
               <article key={client.name} className={`weekly-client-card light-${trafficLight} ${isExpanded ? 'is-expanded' : 'is-collapsed'}`}>
@@ -1309,8 +1404,8 @@ export function WeeklyClientBoard({
                   </div>
                   <div className="client-card-glance">
                     <div>
-                      <span>本週</span>
-                      <strong>{progressPreview}</strong>
+                      <span>狀態</span>
+                      <strong>{statusPreview}</strong>
                     </div>
                     <div>
                       <span>下週</span>
@@ -1355,9 +1450,34 @@ export function WeeklyClientBoard({
                 </header>
 
                 {isExpanded && <main className="client-card-body">
-                  <div className="client-notes-grid">
+                  <div className="client-report-guide">
+                    <span>每一段都會保存到本週版本</span>
+                    <strong>框選句子即可標示日期，日期會留在原文並顯示於週曆。</strong>
+                  </div>
+                  <div className="client-report-fields">
+                    <div className="note-block note-block-current">
+                      <h4>{FIELD_LABELS.currentStatus}</h4>
+                      <InlineDateNote
+                        clientName={client.name}
+                        value={getNoteText(note, 'currentStatus')}
+                        links={note.dateLinks || []}
+                        field="currentStatus"
+                        placeholder={getNotePlaceholder('currentStatus')}
+                        draft={selectionDraft}
+                        dateValue={newDateValue[client.name] || ''}
+                        onChange={(value) => updateNoteText(client.name, 'currentStatus', value)}
+                        onSelectText={(selection) => captureSelection(client.name, 'currentStatus', selection)}
+                        onOpenDate={setFocusDate}
+                        onDateChange={(value) => setNewDateValue((current) => ({ ...current, [client.name]: value }))}
+                        onCreateLink={() => addDateLink(client.name)}
+                        onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
+                        onUpdateLink={(id, date) => updateDateLink(client.name, id, date)}
+                        onRemoveLink={(id) => removeDateLink(client.name, id)}
+                        onCancelLink={() => setSelectionDraft(null)}
+                      />
+                    </div>
                     <div className="note-block">
-                      <h4>本週進度</h4>
+                      <h4>{FIELD_LABELS.progress}</h4>
                       <InlineDateNote
                         clientName={client.name}
                         value={getNoteText(note, 'progress')}
@@ -1378,7 +1498,7 @@ export function WeeklyClientBoard({
                       />
                     </div>
                     <div className="note-block">
-                      <h4>下週推進</h4>
+                      <h4>{FIELD_LABELS.nextPush}</h4>
                       <InlineDateNote
                         clientName={client.name}
                         value={getNoteText(note, 'nextPush')}
@@ -1398,11 +1518,29 @@ export function WeeklyClientBoard({
                         onCancelLink={() => setSelectionDraft(null)}
                       />
                     </div>
-                  </div>
-
-                  <details className="urgent-accordion">
-                    <summary><AlertTriangle size={15} />緊急或協辦事項</summary>
-                    <div className="accordion-content">
+                    <div className="note-block note-block-shooting">
+                      <h4>{FIELD_LABELS.shootingNote}</h4>
+                      <InlineDateNote
+                        clientName={client.name}
+                        value={getNoteText(note, 'shootingNote')}
+                        links={note.dateLinks || []}
+                        field="shootingNote"
+                        placeholder={getNotePlaceholder('shootingNote')}
+                        draft={selectionDraft}
+                        dateValue={newDateValue[client.name] || ''}
+                        onChange={(value) => updateNoteText(client.name, 'shootingNote', value)}
+                        onSelectText={(selection) => captureSelection(client.name, 'shootingNote', selection)}
+                        onOpenDate={setFocusDate}
+                        onDateChange={(value) => setNewDateValue((current) => ({ ...current, [client.name]: value }))}
+                        onCreateLink={() => addDateLink(client.name)}
+                        onCreateLinkForDate={(date) => addDateLink(client.name, undefined, date)}
+                        onUpdateLink={(id, date) => updateDateLink(client.name, id, date)}
+                        onRemoveLink={(id) => removeDateLink(client.name, id)}
+                        onCancelLink={() => setSelectionDraft(null)}
+                      />
+                    </div>
+                    <div className="note-block note-block-company">
+                      <h4>{FIELD_LABELS.companyHelp}</h4>
                       <InlineDateNote
                         clientName={client.name}
                         value={getNoteText(note, 'companyHelp')}
@@ -1422,36 +1560,6 @@ export function WeeklyClientBoard({
                         onCancelLink={() => setSelectionDraft(null)}
                       />
                     </div>
-                  </details>
-
-                  <div className="client-tasks-grid">
-                    {(['待拍攝', '待確認事項'] as const).map(type => (
-                      <div key={type} className="task-col">
-                        <h4>{type}</h4>
-                        <div className="task-col-items">
-                          {client.tasks.filter(t => t.task_type === type || (type === '待確認事項' && t.category === '待確認事項') || (type === '待拍攝' && t.category === '待拍攝')).map(t => (
-                            <div key={t.id} className="sleek-task-item" onClick={() => onEditTask(t)}>
-                              <span className="status-dot" data-status={t.status} />
-                              <span className="task-title">{t.title}</span>
-                              {t.deadline && <small className="task-deadline">{formatDateOnly(t.deadline)}</small>}
-                            </div>
-                          ))}
-                        </div>
-                        {onCreateTask && (
-                          <input
-                            type="text"
-                            placeholder={`+ 新增${type}...`}
-                            className="sleek-task-input"
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                                onCreateTask(client.name, type, e.currentTarget.value.trim());
-                                e.currentTarget.value = '';
-                              }
-                            }}
-                          />
-                        )}
-                      </div>
-                    ))}
                   </div>
                 </main>}
               </article>

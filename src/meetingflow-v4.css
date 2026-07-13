@@ -340,8 +340,31 @@ body {
   padding: 15px;
 }
 
-.client-notes-grid {
+.client-report-guide {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 12px;
+  padding: 0 1px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.client-report-guide strong {
+  color: var(--accent-strong);
+  font-weight: 650;
+}
+
+.client-report-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 12px;
+}
+
+.note-block-current,
+.note-block-shooting,
+.note-block-company {
+  grid-column: 1 / -1;
 }
 
 .note-block h4,
@@ -373,6 +396,21 @@ body {
   padding: 11px 12px;
   font-size: 0.88rem;
   line-height: 1.65;
+}
+
+.note-block-current .tiptap-wrapper,
+.note-block-current .ProseMirror {
+  min-height: 78px;
+}
+
+.note-block-shooting .tiptap-wrapper,
+.note-block-shooting .ProseMirror {
+  min-height: 138px;
+}
+
+.note-block-company .tiptap-wrapper,
+.note-block-company .ProseMirror {
+  min-height: 92px;
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {
@@ -512,13 +550,9 @@ body {
   justify-self: start;
 }
 
-.urgent-accordion {
-  border-color: rgba(157, 97, 86, 0.22);
+.note-block-company .tiptap-wrapper {
+  border: 1px solid rgba(157, 97, 86, 0.18);
   background: #f6eeeb;
-}
-
-.client-tasks-grid {
-  margin-top: 0;
 }
 
 .week-focus-panel {
@@ -620,9 +654,14 @@ body {
     margin: 0;
   }
 
-  .client-notes-grid,
-  .client-tasks-grid {
+  .client-report-fields {
     grid-template-columns: 1fr;
+  }
+
+  .note-block-current,
+  .note-block-shooting,
+  .note-block-company {
+    grid-column: auto;
   }
 
   .inline-date-popover {

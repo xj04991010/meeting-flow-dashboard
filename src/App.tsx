@@ -9,7 +9,6 @@ import {
   getGoogleAuthUrl,
   updateCalendarIntent,
   updateTask,
-  createManualEntry,
   fetchClients,
   createClient,
   DashboardAuthError,
@@ -230,19 +229,6 @@ function App() {
     }
   };
 
-  const handleCreateTask = async (clientName: string, taskType: string, title: string) => {
-    try {
-      await createManualEntry({
-        text: title,
-        client: clientName,
-        category: taskType,
-      });
-      await fetchData();
-    } catch (err) {
-      console.error('Create task error:', err);
-    }
-  };
-
   const handleCreateClient = async (name: string) => {
     try {
       await createClient({ name, status: 'active' });
@@ -358,7 +344,6 @@ function App() {
           selectedDate={selectedDate}
           onEditTask={(task) => setEditing({ type: 'task', item: task })}
           onEditEvent={(event) => setEditing({ type: 'event', item: event })}
-          onCreateTask={handleCreateTask}
           onCreateClient={handleCreateClient}
           onSelectWeek={setSelectedDate}
         /> : <MonthCalendar

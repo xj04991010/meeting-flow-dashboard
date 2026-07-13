@@ -66,7 +66,7 @@ export type DateLinkData = {
   label: string;
   date: string;
   source?: string;
-  field?: 'progress' | 'nextPush' | 'companyHelp';
+  field?: 'currentStatus' | 'progress' | 'nextPush' | 'shootingNote' | 'companyHelp';
   start?: number;
 };
 
